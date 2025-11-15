@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Florida Gators Men&apos;s Basketball Hub</title>
+  <title>Florida Gators Men&apos;s Basketball Hub (Unofficial)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body data-theme="light">
   <header class="site-header">
-    <div class="top-bar">
+    <div class="header-inner">
       <div class="brand">
         <div class="brand-logo">
           <span class="brand-block brand-blue"></span>
@@ -21,7 +21,7 @@
       </div>
 
       <div class="header-actions">
-        <span id="live-badge" class="live-badge hidden">College hoops live now</span>
+        <span id="live-badge" class="live-badge hidden">Game In Progress</span>
         <button id="theme-toggle" class="btn btn-ghost">Dark mode</button>
       </div>
     </div>
@@ -31,93 +31,22 @@
         <li><button class="nav-link active" data-target="schedule-section">Schedule</button></li>
         <li><button class="nav-link" data-target="roster-section">Roster</button></li>
         <li><button class="nav-link" data-target="stats-section">Stats</button></li>
-        <li><button class="nav-link" data-target="analytics-section">Team Analytics</button></li>
+        <li><button class="nav-link" data-target="analytics-section">Analytics</button></li>
         <li><button class="nav-link" data-target="tickets-section">Tickets</button></li>
         <li><button class="nav-link" data-target="store-section">Store</button></li>
         <li><button class="nav-link" data-target="fan-section">Fan Hub</button></li>
       </ul>
     </nav>
-
-    <section class="hero">
-      <div class="hero-overlay"></div>
-      <div class="hero-inner">
-        <div class="hero-left">
-          <p class="hero-kicker">Men&apos;s Basketball</p>
-          <h1 class="hero-title">Gators Hoops Central</h1>
-          <p class="hero-desc">
-            Schedule, live stats, analytics, tickets, and fan hub for Florida Gators men&apos;s basketball.
-          </p>
-
-          <div class="hero-grid">
-            <div class="hero-card">
-              <h2 class="hero-card-title">Next Game</h2>
-              <div class="next-game-main">
-                <div>
-                  <div id="next-game-opponent" class="next-game-opponent">Loading...</div>
-                  <div id="next-game-meta" class="next-game-meta"></div>
-                </div>
-                <div class="next-game-countdown">
-                  <div class="countdown-label">Tip-off in</div>
-                  <div id="countdown-timer" class="countdown-timer">--d --h --m --s</div>
-                </div>
-              </div>
-            </div>
-
-            <div class="hero-card hero-card-metrics">
-              <h2 class="hero-card-title">Season Snapshot</h2>
-              <div class="metric-row">
-                <span>Record</span>
-                <strong id="quick-record">–</strong>
-              </div>
-              <div class="metric-row">
-                <span>Points per Game</span>
-                <strong id="quick-ppg">–</strong>
-              </div>
-              <div class="metric-row">
-                <span>Rebounds per Game</span>
-                <strong id="quick-rpg">–</strong>
-              </div>
-              <div class="metric-row">
-                <span>Last 5 Games</span>
-                <strong id="quick-last5">–</strong>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <aside class="hero-right">
-          <div class="hero-card hero-card-compact">
-            <h2 class="hero-card-title">Quick Filters</h2>
-            <div class="hero-filter-row">
-              <label>Season</label>
-              <select id="hero-season-select"></select>
-            </div>
-            <div class="hero-filter-row">
-              <label>View</label>
-              <div class="pill-row">
-                <button class="pill-btn pill-active" data-target="schedule-section">Schedule</button>
-                <button class="pill-btn" data-target="stats-section">Stats</button>
-                <button class="pill-btn" data-target="analytics-section">Analytics</button>
-              </div>
-            </div>
-            <p class="hero-note">
-              Data from SportsDataIO NCAA Basketball multi-season endpoints.
-            </p>
-          </div>
-        </aside>
-      </div>
-    </section>
   </header>
 
   <main class="site-main">
-
     <!-- SCHEDULE -->
     <section id="schedule-section" class="tab-section active">
       <div class="section-header">
         <div>
-          <h2>Schedule</h2>
+          <h2>Schedule &amp; Countdown</h2>
           <p class="section-subtitle">
-            Full schedule with results and a live countdown to the next game.
+            Full schedule with a live countdown to the next game.
           </p>
         </div>
         <div class="section-controls">
@@ -130,6 +59,38 @@
             Upcoming only
           </label>
           <input type="search" id="schedule-search" placeholder="Search opponent..." />
+        </div>
+      </div>
+
+      <div class="grid-two">
+        <div class="card">
+          <h3>Next Game</h3>
+          <p id="next-game-opponent" class="next-game-opponent">Loading...</p>
+          <p id="next-game-meta" class="next-game-meta"></p>
+          <div class="countdown-box">
+            <span class="countdown-label">Tip-off in</span>
+            <span id="countdown-timer" class="countdown-timer">--d --h --m --s</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Season Snapshot</h3>
+          <div class="metric-row">
+            <span>Record</span>
+            <strong id="quick-record">–</strong>
+          </div>
+          <div class="metric-row">
+            <span>Points per Game</span>
+            <strong id="quick-ppg">–</strong>
+          </div>
+          <div class="metric-row">
+            <span>Rebounds per Game</span>
+            <strong id="quick-rpg">–</strong>
+          </div>
+          <div class="metric-row">
+            <span>Last 5 Games</span>
+            <strong id="quick-last5">–</strong>
+          </div>
         </div>
       </div>
 
@@ -163,7 +124,7 @@
       <div class="section-header">
         <div>
           <h2>Roster</h2>
-          <p class="section-subtitle">Current and former players across seasons.</p>
+          <p class="section-subtitle">Current and former players by season.</p>
         </div>
         <div class="section-controls">
           <label>
@@ -205,7 +166,7 @@
         <div>
           <h2>Player Stats</h2>
           <p class="section-subtitle">
-            Per-player season averages with team leaders and fun prop-style lines.
+            Season averages, team leaders, and fun prop-style lines (for fun only).
           </p>
         </div>
         <div class="section-controls">
@@ -247,7 +208,7 @@
             <h3>Fun Prop Ideas</h3>
             <ul id="props-ideas" class="props-list"></ul>
             <p class="muted tiny">
-              Props are for fun only and based on season averages, not a sportsbook.
+              Props are for fun only, based on averages (not a sportsbook).
             </p>
             <p id="sportsbooks-note" class="muted tiny"></p>
           </div>
@@ -278,7 +239,7 @@
           <ul id="analytics-record" class="metric-list"></ul>
         </div>
         <div class="card">
-          <h3>Scoring & Margin</h3>
+          <h3>Scoring &amp; Margin</h3>
           <ul id="analytics-scoring" class="metric-list"></ul>
         </div>
         <div class="card">
@@ -286,11 +247,6 @@
           <ul id="analytics-last5" class="metric-list"></ul>
         </div>
       </div>
-
-      <p class="muted tiny">
-        Multi-season data pulled from NCAA Basketball TeamSchedule, TeamSeasonStats, and
-        PlayerSeasonStatsByTeam endpoints. :contentReference[oaicite:1]{index=1}
-      </p>
     </section>
 
     <!-- TICKETS -->
@@ -299,7 +255,7 @@
         <div>
           <h2>Tickets</h2>
           <p class="section-subtitle">
-            Upcoming home games plus links to official ticket and merch partners.
+            Upcoming home games plus links to official tickets and merch partners.
           </p>
         </div>
       </div>
