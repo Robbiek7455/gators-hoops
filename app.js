@@ -1,20 +1,24 @@
 // =====================
-// CONFIG – USES YOUR KEY & ENDPOINTS
+// CONFIG – FRONTEND CALLS YOUR CLOUDFLARE WORKER
 // =====================
-const API_CONFIG = {
-  apiKey: "635e15cefe1e475c8fdd13bfe3c8f6ef", // you said OK to embed
 
+// TODO: change this to your real Worker URL
+// Example: "https://gators-proxy.robbiek7455.workers.dev"
+const WORKER_BASE = "gators-proxy.robbiek7455.workers.dev/";
+
+const API_CONFIG = {
+  // seasons you want to support in the UI
   seasons: [2022, 2023, 2024, 2025],
   defaultSeason: 2025,
   teamKey: "FLA", // Florida Gators key in SportsDataIO
 
-  // base URLs from your NCAA Basketball endpoints
-  baseScoresUrl: "https://api.sportsdata.io/v3/cbb/scores/json",
-  baseStatsUrl: "https://api.sportsdata.io/v3/cbb/stats/json",
-  baseOddsUrl: "https://api.sportsdata.io/v3/cbb/odds/json"
+  // these now point to your Worker, NOT directly to api.sportsdata.io
+  baseScoresUrl: `${WORKER_BASE}/v3/cbb/scores/json`,
+  baseStatsUrl: `${WORKER_BASE}/v3/cbb/stats/json`,
+  baseOddsUrl: `${WORKER_BASE}/v3/cbb/odds/json`
 };
 
-// Endpoints directly matching your list (multi-season, team FLA etc.) :contentReference[oaicite:3]{index=3}
+// Endpoints: multi-season NCAA CBB endpoints (matching your SportsDataIO list)
 const ENDPOINTS = {
   // Multi-season schedule for FLA
   schedulesMultiSeason: "TeamSchedule/2022,2023,2024,2025/FLA",
@@ -39,13 +43,14 @@ const ENDPOINTS = {
 };
 
 function urlScores(path) {
-  return `${API_CONFIG.baseScoresUrl}/${path}?key=${API_CONFIG.apiKey}`;
+  // no ?key here – Worker adds key in header
+  return `${API_CONFIG.baseScoresUrl}/${path}`;
 }
 function urlStats(path) {
-  return `${API_CONFIG.baseStatsUrl}/${path}?key=${API_CONFIG.apiKey}`;
+  return `${API_CONFIG.baseStatsUrl}/${path}`;
 }
 function urlOdds(path) {
-  return `${API_CONFIG.baseOddsUrl}/${path}?key=${API_CONFIG.apiKey}`;
+  return `${API_CONFIG.baseOddsUrl}/${path}`;
 }
 
 // =====================
@@ -265,7 +270,7 @@ function initPoll() {
 }
 
 // =====================
-// DATA LOADING (ALL AT ONCE)
+// DATA LOADING (ALL AT ONCE THROUGH WORKER)
 // =====================
 async function loadAllData() {
   const loading = document.getElementById("global-loading");
@@ -318,7 +323,7 @@ async function loadAllData() {
     console.error("Error loading data:", err);
     if (errorDiv) {
       errorDiv.textContent =
-        "Error loading data from SportsDataIO – check your endpoints and key.";
+        "Error loading data from SportsDataIO (via Worker) – check Worker URL and endpoints.";
       errorDiv.classList.remove("hidden");
     }
   } finally {
@@ -327,7 +332,7 @@ async function loadAllData() {
 }
 
 async function fetchJson(url) {
-  const res = await fetch(url);
+  const res = await fetch(url); // no headers; Worker adds key & CORS
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
   return res.json();
 }
@@ -501,7 +506,6 @@ function renderHeroFromState() {
 
   let wins = 0;
   let losses = 0;
-  const finals = [];
 
   schedule.forEach((g) => {
     if (g.Status !== "Final") return;
@@ -511,7 +515,6 @@ function renderHeroFromState() {
     if (ourScore == null || oppScore == null) return;
     if (ourScore > oppScore) wins++;
     else if (ourScore < oppScore) losses++;
-    finals.push({ ourScore, oppScore });
   });
 
   if (recordEl) recordEl.textContent = wins + losses ? `${wins}-${losses}` : "–";
@@ -622,7 +625,6 @@ function renderRoster() {
     playersMap.set(key, p);
   });
 
-  // Current season from PlayerSeasonStatsByTeam
   const currentPlayers = dedupePlayers(statsThisSeason).filter((p) => {
     if (searchValue && !p.Name.toLowerCase().includes(searchValue)) return false;
     if (posFilter !== "all" && p.Position && p.Position !== posFilter) return false;
@@ -652,7 +654,6 @@ function renderRoster() {
     });
   }
 
-  // Former players: players that appear in other seasons
   const formerMap = new Map();
   (state.playerSeasonStatsAll || []).forEach((p) => {
     if (p.Season === currentSeason) return;
@@ -872,7 +873,7 @@ function renderAnalytics() {
     <li>Defensive PPG (approx): ${avgAgainst.toFixed(1)}</li>
     <li>Average Margin: ${margin >= 0 ? "+" : ""}${margin.toFixed(1)}</li>
     <li>Tempo-ish (combined PPG): ${tempoApprox.toFixed(1)}</li>
-  ";
+  `;
 
   last5El.innerHTML = "";
   finals.slice(-5).forEach(({ g, dt }) => {
