@@ -2,248 +2,334 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Florida Gators Men’s Basketball Hub</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Florida Gators Men&apos;s Basketball Hub</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header class="site-header">
-    <div class="header-top">
-      <div class="logo-area">
-        <!-- You can swap this for an official logo image hosted elsewhere -->
-        <div class="gator-logo">UF</div>
-        <div class="site-title">
-          <h1>Florida Gators Men’s Basketball</h1>
-          <p>Unofficial Fan Hub</p>
-        </div>
+    <div class="top-bar">
+      <div class="brand-mark">
+        <span class="brand-block brand-block-blue"></span>
+        <span class="brand-block brand-block-orange"></span>
+        <span class="brand-text">Florida Gators Men&apos;s Basketball Hub</span>
       </div>
-      <div class="next-game-card" id="nextGameCard">
-        <div class="next-game-label">Next Game</div>
-        <div class="next-game-info">
-          <span id="nextGameOpponent">Loading...</span>
-          <span id="nextGameDate"></span>
-        </div>
-        <div class="countdown">
-          <span id="countdownDays">--</span>d
-          <span id="countdownHours">--</span>h
-          <span id="countdownMinutes">--</span>m
-          <span id="countdownSeconds">--</span>s
-        </div>
+      <div class="top-bar-right">
+        <span class="top-tag">Unofficial Fan Site</span>
       </div>
     </div>
 
     <nav class="main-nav">
-      <button data-tab="schedule" class="nav-item active">Schedule</button>
-      <button data-tab="roster" class="nav-item">Roster</button>
-      <button data-tab="stats" class="nav-item">Stats</button>
-      <button data-tab="analytics" class="nav-item">Team Analytics</button>
-      <button data-tab="tickets" class="nav-item">Tickets</button>
-      <button data-tab="store" class="nav-item">Store</button>
-      <button data-tab="fan" class="nav-item">Fan Hub</button>
+      <ul>
+        <li><button class="nav-link active" data-target="schedule">Schedule</button></li>
+        <li><button class="nav-link" data-target="roster">Roster</button></li>
+        <li><button class="nav-link" data-target="stats">Stats</button></li>
+        <li><button class="nav-link" data-target="analytics">Team Analytics</button></li>
+        <li><button class="nav-link" data-target="tickets">Tickets</button></li>
+        <li><button class="nav-link" data-target="store">Store</button></li>
+        <li><button class="nav-link" data-target="fan-hub">Fan Hub</button></li>
+      </ul>
     </nav>
+
+    <section class="hero">
+      <div class="hero-left">
+        <h1 class="hero-title">Gators Hoops Central</h1>
+        <p className="hero-subtitle">Schedule · Roster · Stats · Analytics · Tickets · Fan Hub</p>
+        <div class="hero-next-game">
+          <h2>Next Game</h2>
+          <div class="next-game-main">
+            <div>
+              <div id="next-game-opponent" class="next-game-opponent">Loading...</div>
+              <div id="next-game-meta" class="next-game-meta"></div>
+            </div>
+            <div class="next-game-countdown">
+              <div class="countdown-label">Tip-off in</div>
+              <div id="countdown-timer" class="countdown-timer">-- : -- : -- : --</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="hero-right">
+        <div class="hero-card">
+          <h3>Quick Glance</h3>
+          <div class="quick-metric">
+            <span>Record</span>
+            <strong id="quick-record">–</strong>
+          </div>
+          <div class="quick-metric">
+            <span>Points Per Game</span>
+            <strong id="quick-ppg">–</strong>
+          </div>
+          <div class="quick-metric">
+            <span>Rebounds Per Game</span>
+            <strong id="quick-rpg">–</strong>
+          </div>
+          <div class="quick-metric">
+            <span>Last 5 Games</span>
+            <strong id="quick-last5">–</strong>
+          </div>
+        </div>
+      </div>
+    </section>
   </header>
 
-  <main class="content">
+  <main class="site-main">
     <!-- SCHEDULE TAB -->
-    <section id="tab-schedule" class="tab active">
-      <h2>Schedule</h2>
-      <p class="tab-subtitle">Full season schedule with results and upcoming games.</p>
-      <div class="filters">
-        <label>
-          Season:
-          <select id="scheduleSeasonSelect"></select>
-        </label>
-        <label>
-          View:
-          <select id="scheduleViewSelect">
-            <option value="all">All</option>
-            <option value="upcoming">Upcoming</option>
-            <option value="completed">Completed</option>
-          </select>
-        </label>
+    <section id="schedule" class="tab-section active">
+      <div class="section-header">
+        <h2>Schedule</h2>
+        <div class="section-controls">
+          <label>
+            Season
+            <select id="schedule-season-select"></select>
+          </label>
+          <label class="checkbox-inline">
+            <input type="checkbox" id="schedule-upcoming-only" />
+            Upcoming only
+          </label>
+        </div>
       </div>
-      <div id="scheduleTable" class="card-list"></div>
+      <div class="card">
+        <div class="table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Opponent</th>
+                <th>Location</th>
+                <th>Result</th>
+                <th>Record</th>
+              </tr>
+            </thead>
+            <tbody id="schedule-table-body">
+              <tr><td colspan="5" class="placeholder">Loading schedule...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="game-detail" class="card game-detail hidden">
+        <h3>Game Summary</h3>
+        <div id="game-detail-content">Click a game in the schedule to see details.</div>
+      </div>
     </section>
 
     <!-- ROSTER TAB -->
-    <section id="tab-roster" class="tab">
-      <h2>Roster</h2>
-      <p class="tab-subtitle">Current roster plus notable former players.</p>
+    <section id="roster" class="tab-section">
+      <div class="section-header">
+        <h2>Roster</h2>
+        <div class="section-controls">
+          <label>
+            Season
+            <select id="roster-season-select"></select>
+          </label>
+          <label>
+            Position
+            <select id="roster-position-filter">
+              <option value="all">All</option>
+              <option value="G">Guards</option>
+              <option value="F">Forwards</option>
+              <option value="C">Centers</option>
+            </select>
+          </label>
+          <input type="search" id="roster-search" placeholder="Search players..." />
+        </div>
+      </div>
+
       <div class="roster-layout">
         <div class="card">
-          <h3>Current Roster</h3>
-          <div class="filters">
-            <label>
-              Season:
-              <select id="rosterSeasonSelect"></select>
-            </label>
-            <label>
-              Position:
-              <select id="rosterPositionFilter">
-                <option value="all">All</option>
-                <option value="G">Guards</option>
-                <option value="F">Forwards</option>
-                <option value="C">Centers</option>
-              </select>
-            </label>
+          <h3>Current Season</h3>
+          <div id="roster-current" class="roster-grid">
+            <p class="placeholder">Loading roster...</p>
           </div>
-          <table class="data-table" id="currentRosterTable">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Player</th>
-                <th>Pos</th>
-                <th>Ht</th>
-                <th>Wt</th>
-                <th>Class</th>
-                <th>Hometown</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
         </div>
-
         <div class="card">
-          <h3>Former Players (History)</h3>
-          <p class="small-text">Pulled from SportsDataIO player history & filtered by Florida.</p>
-          <table class="data-table" id="formerPlayersTable">
-            <thead>
-              <tr>
-                <th>Player</th>
-                <th>Years</th>
-                <th>Pos</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+          <h3>Former Players (based on past seasons)</h3>
+          <div id="roster-former" class="roster-grid">
+            <p class="placeholder">Choose a previous season to see former players.</p>
+          </div>
         </div>
       </div>
     </section>
 
     <!-- STATS TAB -->
-    <section id="tab-stats" class="tab">
-      <h2>Player Stats</h2>
-      <p class="tab-subtitle">Season-long per-player stats for the Florida Gators.</p>
-      <div class="filters">
-        <label>
-          Season:
-          <select id="statsSeasonSelect"></select>
-        </label>
+    <section id="stats" class="tab-section">
+      <div class="section-header">
+        <h2>Player Stats</h2>
+        <div class="section-controls">
+          <label>
+            Season
+            <select id="stats-season-select"></select>
+          </label>
+        </div>
       </div>
-      <table class="data-table" id="statsTable">
-        <thead>
-          <tr>
-            <th>Player</th>
-            <th>GP</th>
-            <th>MIN</th>
-            <th>PTS</th>
-            <th>REB</th>
-            <th>AST</th>
-            <th>FG%</th>
-            <th>3P%</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
+
+      <div class="stats-layout">
+        <div class="card stats-main">
+          <div class="table-wrapper">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Player</th>
+                  <th>GP</th>
+                  <th>PPG</th>
+                  <th>RPG</th>
+                  <th>APG</th>
+                  <th>3P%</th>
+                  <th>FT%</th>
+                </tr>
+              </thead>
+              <tbody id="stats-table-body">
+                <tr><td colspan="7" class="placeholder">Loading stats...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <aside class="stats-sidebar">
+          <div class="card" id="stats-leaders-card">
+            <h3>Team Leaders</h3>
+            <div id="stats-leaders"></div>
+          </div>
+          <div class="card">
+            <h3>Fun Props Ideas</h3>
+            <ul id="props-ideas" class="props-list"></ul>
+            <p class="props-footnote">
+              Props are for fun only and derived from season averages, not a sportsbook.
+            </p>
+          </div>
+        </aside>
+      </div>
     </section>
 
-    <!-- ANALYTICS TAB -->
-    <section id="tab-analytics" class="tab">
-      <h2>Team Analytics</h2>
-      <p class="tab-subtitle">Game tempo, home/away splits, conference vs. non-conference, and more.</p>
-      <div id="analyticsSummary" class="analytics-grid">
-        <div class="card">
-          <h3>Tempo</h3>
-          <p class="metric" id="tempoMetric">--</p>
-          <p class="metric-label">Estimated possessions per 40 minutes</p>
-        </div>
-        <div class="card">
-          <h3>Offensive Rating</h3>
-          <p class="metric" id="offRtgMetric">--</p>
-          <p class="metric-label">Points per 100 possessions</p>
-        </div>
-        <div class="card">
-          <h3>Defensive Rating</h3>
-          <p class="metric" id="defRtgMetric">--</p>
-          <p class="metric-label">Points allowed per 100 possessions</p>
-        </div>
-        <div class="card">
-          <h3>Home vs Away</h3>
-          <p class="metric" id="homeAwayMetric">--</p>
-          <p class="metric-label">Record & PPG home vs away</p>
+    <!-- TEAM ANALYTICS TAB -->
+    <section id="analytics" class="tab-section">
+      <div class="section-header">
+        <h2>Team Analytics</h2>
+        <div class="section-controls">
+          <label>
+            Season
+            <select id="analytics-season-select"></select>
+          </label>
         </div>
       </div>
 
-      <div class="card">
-        <h3>Game Summaries (Last 10)</h3>
-        <div id="gameSummaries" class="card-list"></div>
+      <div class="analytics-grid">
+        <div class="card">
+          <h3>Record Split</h3>
+          <ul id="analytics-record-split" class="metric-list"></ul>
+        </div>
+        <div class="card">
+          <h3>Scoring & Margin</h3>
+          <ul id="analytics-scoring" class="metric-list"></ul>
+        </div>
+        <div class="card">
+          <h3>Last 5 Games</h3>
+          <ul id="analytics-last5" class="metric-list"></ul>
+        </div>
       </div>
+
+      <p class="analytics-note">
+        Some data may be slightly off if you are using a free-trial SportsDataIO feed with
+        “scrambled” stats. Paid plans remove the scrambling. :contentReference[oaicite:5]{index=5}
+      </p>
     </section>
 
     <!-- TICKETS TAB -->
-    <section id="tab-tickets" class="tab">
-      <h2>Tickets</h2>
-      <p class="tab-subtitle">
-        Upcoming games with ticket links. For true live pricing you’d later plug in a ticketing API
-        (SeatGeek, Ticketmaster, VividSeats, etc.).
-      </p>
-      <div id="ticketsList" class="card-list"></div>
+    <section id="tickets" class="tab-section">
+      <div class="section-header">
+        <h2>Tickets</h2>
+      </div>
+      <div class="card tickets-intro">
+        <p>
+          This tab focuses on upcoming home games and links you to the official Gators ticket
+          partners. Price ranges are placeholders—you can wire in a dedicated tickets API later.
+        </p>
+      </div>
+      <div id="tickets-grid" class="tickets-grid">
+        <p class="placeholder">Loading upcoming home games...</p>
+      </div>
+      <div class="card tickets-links">
+        <h3>Official Ticket & Merch Partners</h3>
+        <div class="button-row">
+          <a class="btn primary" href="https://floridagators.com/sports/mens-basketball" target="_blank" rel="noopener noreferrer">
+            Official Gators Men&apos;s Basketball Page
+          </a>
+          <a class="btn" href="https://shop.floridagators.com/" target="_blank" rel="noopener noreferrer">
+            Official Gators Shop
+          </a>
+        </div>
+      </div>
     </section>
 
     <!-- STORE TAB -->
-    <section id="tab-store" class="tab">
-      <h2>Official Gators Store</h2>
-      <p class="tab-subtitle">Direct links to official Florida Gators basketball gear.</p>
+    <section id="store" class="tab-section">
+      <div class="section-header">
+        <h2>Gators Store</h2>
+      </div>
       <div class="store-grid">
-        <a class="store-card" href="https://shop.floridagators.com/" target="_blank" rel="noopener">
+        <div class="card">
           <h3>Official Gators Shop</h3>
-          <p>Jerseys, hats, hoodies, national championship gear & more.</p>
-        </a>
-        <a class="store-card" href="https://www.bkstr.com/floridastore/shop/basketball-gear" target="_blank" rel="noopener">
-          <h3>UF Bookstore – Basketball Gear</h3>
-          <p>On-campus vibes: jerseys, shorts, tees, and more.</p>
-        </a>
-        <a class="store-card" href="https://www.dickssportinggoods.com/f/florida-gators-apparel-gear" target="_blank" rel="noopener">
-          <h3>DICK’S Sporting Goods</h3>
-          <p>Florida Gators apparel & accessories.</p>
-        </a>
+          <p>Officially licensed Gators gear straight from the official store.</p>
+          <a class="btn primary" href="https://shop.floridagators.com/" target="_blank" rel="noopener noreferrer">
+            Visit Official Gators Shop
+          </a>
+        </div>
+        <div class="card">
+          <h3>Basketball Gear</h3>
+          <p>Jerseys, shorts, and more from trusted partners.</p>
+          <a class="btn" href="https://www.fanatics.com/college/florida-gators/o-27+t-89617425+z-936538-3141635590" target="_blank" rel="noopener noreferrer">
+            Fanatics Gators Basketball
+          </a>
+        </div>
+        <div class="card">
+          <h3>Campus Bookstore</h3>
+          <p>UF-branded apparel and hoops gear from the bookstore.</p>
+          <a class="btn" href="https://www.bkstr.com/floridastore/shop/basketball-gear" target="_blank" rel="noopener noreferrer">
+            UF Bookstore Basketball Gear
+          </a>
+        </div>
       </div>
     </section>
 
     <!-- FAN HUB TAB -->
-    <section id="tab-fan" class="tab">
-      <h2>Fan Hub</h2>
-      <p class="tab-subtitle">Polls, quick reactions, and fun extras for Gator Nation.</p>
-
-      <div class="card">
-        <h3>Poll: Team MVP So Far?</h3>
-        <form id="pollForm">
-          <div id="pollOptions">
-            <!-- Filled dynamically with current roster names -->
-          </div>
-          <button type="submit" class="btn-primary">Vote</button>
-        </form>
-        <div id="pollResults" class="poll-results"></div>
+    <section id="fan-hub" class="tab-section">
+      <div class="section-header">
+        <h2>Fan Hub</h2>
       </div>
 
-      <div class="card">
-        <h3>Quick Fan Notes (Local Only)</h3>
-        <p class="small-text">
-          These notes are stored only in your browser using localStorage (not on a server).
-        </p>
-        <textarea id="fanNotesInput" rows="4" placeholder="Write your thoughts about the season..."></textarea>
-        <button id="saveFanNotesBtn" class="btn-secondary">Save Notes</button>
-        <div id="fanNotesSaved" class="small-text"></div>
+      <div class="fan-grid">
+        <div class="card">
+          <h3>Poll: Who will lead in scoring?</h3>
+          <form id="fan-poll">
+            <p>Vote once per device (stored locally).</p>
+            <label><input type="radio" name="poll-choice" value="guard"> Lead Guard</label><br/>
+            <label><input type="radio" name="poll-choice" value="wing"> Wing Scorer</label><br/>
+            <label><input type="radio" name="poll-choice" value="big"> Big Man</label><br/>
+            <button type="submit" class="btn primary">Vote</button>
+          </form>
+          <div id="poll-results" class="poll-results"></div>
+        </div>
+
+        <div class="card">
+          <h3>Fan Noise</h3>
+          <ul class="fan-links">
+            <li><a href="https://floridagators.com/sports/mens-basketball" target="_blank" rel="noopener noreferrer">Official Men&apos;s Basketball Page</a></li>
+            <li><a href="https://www.youtube.com/results?search_query=florida+gators+mens+basketball+highlights" target="_blank" rel="noopener noreferrer">YouTube Highlights</a></li>
+            <li><a href="https://x.com/search?q=Florida%20Gators%20basketball&src=typed_query" target="_blank" rel="noopener noreferrer">Live Reaction on X</a></li>
+          </ul>
+          <p class="fan-note">
+            You can later embed social widgets here if you want a live feed.
+          </p>
+        </div>
       </div>
     </section>
   </main>
 
-  <footer class="site-footer">
-    <p>
-      Data from SportsDataIO and other public sources. This is an unofficial fan site and is
-      not affiliated with the University of Florida.
-    </p>
-  </footer>
+  <div id="global-loading" class="global-loading hidden">
+    <div class="spinner"></div>
+    <div>Loading Gators data...</div>
+  </div>
+  <div id="global-error" class="global-error hidden"></div>
 
   <script src="app.js"></script>
 </body>
