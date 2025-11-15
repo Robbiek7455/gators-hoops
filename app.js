@@ -1,42 +1,115 @@
-// =======================
-// CONFIG
-// =======================
+// =====================
+// CONFIG – USES YOUR KEY & ENDPOINTS
+// =====================
 const API_CONFIG = {
-  apiKey: "635e15cefe1e475c8fdd13bfe3c8f6ef", // <-- put your SportsDataIO key here LOCALLY
-  season: 2025,                         // main season year (the year where most games happen)
-  seasonOptions: [2025, 2024, 2023,2022],    // add/remove as needed
-  teamKey: "FLA",                       // Florida Gators key - verify via Teams endpoint
-  baseUrlScores: "https://api.sportsdata.io/v3/cbb/scores/json",
-  baseUrlStats: "https://api.sportsdata.io/v3/cbb/stats/json"
-  // Endpoints used (to verify in your SportsDataIO portal):
-  // - GET /v3/cbb/scores/json/TeamSchedule/{season}/{team}
-  // - GET /v3/cbb/stats/json/PlayerSeasonStatsByTeam/{season}/{team}
+  apiKey: "635e15cefe1e475c8fdd13bfe3c8f6ef", // you said OK to embed
+
+  seasons: [2022, 2023, 2024, 2025],
+  defaultSeason: 2025,
+  teamKey: "FLA", // Florida Gators key in SportsDataIO
+
+  // base URLs from your NCAA Basketball endpoints
+  baseScoresUrl: "https://api.sportsdata.io/v3/cbb/scores/json",
+  baseStatsUrl: "https://api.sportsdata.io/v3/cbb/stats/json",
+  baseOddsUrl: "https://api.sportsdata.io/v3/cbb/odds/json"
 };
 
-// Global state (kept simple)
+// Endpoints directly matching your list (multi-season, team FLA etc.) :contentReference[oaicite:3]{index=3}
+const ENDPOINTS = {
+  // Multi-season schedule for FLA
+  schedulesMultiSeason: "TeamSchedule/2022,2023,2024,2025/FLA",
+
+  // Multi-season player season stats for FLA
+  playerSeasonStatsMultiSeason: "PlayerSeasonStatsByTeam/2022,2023,2024,2025/FLA",
+
+  // Multi-season team season stats (we filter to FLA)
+  teamSeasonStatsMultiSeason: "TeamSeasonStats/2022,2023,2024,2025",
+
+  // All players for FLA
+  playersByTeam: "Players/FLA",
+
+  // Utility: Is any game in progress?
+  areAnyGamesInProgress: "AreAnyGamesInProgress",
+
+  // Utility: current season
+  currentSeason: "CurrentSeason",
+
+  // Odds: list of sportsbooks (names only)
+  activeSportsbooks: "ActiveSportsbooks"
+};
+
+function urlScores(path) {
+  return `${API_CONFIG.baseScoresUrl}/${path}?key=${API_CONFIG.apiKey}`;
+}
+function urlStats(path) {
+  return `${API_CONFIG.baseStatsUrl}/${path}?key=${API_CONFIG.apiKey}`;
+}
+function urlOdds(path) {
+  return `${API_CONFIG.baseOddsUrl}/${path}?key=${API_CONFIG.apiKey}`;
+}
+
+// =====================
+// GLOBAL STATE
+// =====================
 const state = {
-  scheduleBySeason: {},
-  statsBySeason: {},
-  currentSeason: API_CONFIG.season,
+  seasons: API_CONFIG.seasons.slice(),
+  currentSeason: API_CONFIG.defaultSeason,
+
+  scheduleAll: [],
+  playerSeasonStatsAll: [],
+  teamSeasonStatsAll: [],
+  playersAll: [],
+  gamesInProgress: null,
+  activeSportsbooks: [],
+
   countdownInterval: null
 };
 
-// =======================
-// INITIALIZATION
-// =======================
-
+// =====================
+// INIT
+// =====================
 document.addEventListener("DOMContentLoaded", () => {
-  setupTabs();
-  setupSeasonDropdowns();
-  setupPoll();
-  setupFilters();
-  loadSeasonData(API_CONFIG.season); // initial load
+  initTheme();
+  initTabs();
+  initHeroPills();
+  initSeasonSelectors();
+  initFilters();
+  initPoll();
+  loadAllData();
 });
 
-// =======================
-// TABS
-// =======================
-function setupTabs() {
+// =====================
+// THEME TOGGLE
+// =====================
+const THEME_KEY = "gators_theme";
+
+function initTheme() {
+  const stored = localStorage.getItem(THEME_KEY);
+  const initial = stored === "dark" ? "dark" : "light";
+  setTheme(initial);
+
+  const btn = document.getElementById("theme-toggle");
+  if (btn) {
+    btn.addEventListener("click", () => {
+      const next = document.body.dataset.theme === "dark" ? "light" : "dark";
+      setTheme(next);
+      localStorage.setItem(THEME_KEY, next);
+    });
+  }
+}
+
+function setTheme(theme) {
+  document.body.dataset.theme = theme;
+  const btn = document.getElementById("theme-toggle");
+  if (btn) {
+    btn.textContent = theme === "dark" ? "Light mode" : "Dark mode";
+  }
+}
+
+// =====================
+// TABS & HERO PILLS
+// =====================
+function initTabs() {
   const links = document.querySelectorAll(".nav-link");
   const sections = document.querySelectorAll(".tab-section");
 
@@ -52,62 +125,96 @@ function setupTabs() {
   });
 }
 
-// =======================
-// DROPDOWNS
-// =======================
-function setupSeasonDropdowns() {
+function initHeroPills() {
+  const pills = document.querySelectorAll(".pill-btn");
+  const sections = document.querySelectorAll(".tab-section");
+  const navLinks = document.querySelectorAll(".nav-link");
+
+  pills.forEach((pill) => {
+    pill.addEventListener("click", () => {
+      const targetId = pill.dataset.target;
+      pills.forEach((p) => p.classList.remove("pill-active"));
+      pill.classList.add("pill-active");
+
+      navLinks.forEach((link) =>
+        link.classList.toggle("active", link.dataset.target === targetId)
+      );
+      sections.forEach((sec) => {
+        sec.classList.toggle("active", sec.id === targetId);
+      });
+    });
+  });
+}
+
+// =====================
+// SEASON SELECTORS
+// =====================
+function initSeasonSelectors() {
   const ids = [
+    "hero-season-select",
+    "schedule-season-select",
+    "roster-season-select",
+    "stats-season-select",
+    "analytics-season-select"
+  ];
+
+  ids.forEach((id) => {
+    const select = document.getElementById(id);
+    if (!select) return;
+
+    select.innerHTML = "";
+    state.seasons.forEach((season) => {
+      const opt = document.createElement("option");
+      opt.value = season;
+      opt.textContent = season;
+      if (season === state.currentSeason) opt.selected = true;
+      select.appendChild(opt);
+    });
+
+    select.addEventListener("change", (e) => {
+      const val = parseInt(e.target.value, 10);
+      if (!state.seasons.includes(val)) return;
+      state.currentSeason = val;
+      syncSeasonSelectors(val);
+      renderAll();
+    });
+  });
+}
+
+function syncSeasonSelectors(season) {
+  const ids = [
+    "hero-season-select",
     "schedule-season-select",
     "roster-season-select",
     "stats-season-select",
     "analytics-season-select"
   ];
   ids.forEach((id) => {
-    const select = document.getElementById(id);
-    if (!select) return;
-    API_CONFIG.seasonOptions.forEach((yr) => {
-      const opt = document.createElement("option");
-      opt.value = yr;
-      opt.textContent = yr;
-      if (yr === API_CONFIG.season) opt.selected = true;
-      select.appendChild(opt);
-    });
-    select.addEventListener("change", () => {
-      const season = parseInt(select.value, 10);
-      state.currentSeason = season;
-      loadSeasonData(season);
-    });
+    const el = document.getElementById(id);
+    if (el) el.value = String(season);
   });
 }
 
-// =======================
-// FILTER INPUTS
-// =======================
-function setupFilters() {
-  const upcomingCheckbox = document.getElementById("schedule-upcoming-only");
-  if (upcomingCheckbox) {
-    upcomingCheckbox.addEventListener("change", () => {
-      renderScheduleTable();
-    });
-  }
-
+// =====================
+// FILTERS
+// =====================
+function initFilters() {
+  const upcoming = document.getElementById("schedule-upcoming-only");
+  const search = document.getElementById("schedule-search");
   const rosterSearch = document.getElementById("roster-search");
   const rosterPos = document.getElementById("roster-position-filter");
-  [rosterSearch, rosterPos].forEach((el) => {
-    if (!el) return;
-    el.addEventListener("input", () => {
-      renderRoster();
-    });
-    el.addEventListener("change", () => {
-      renderRoster();
-    });
-  });
+
+  if (upcoming) upcoming.addEventListener("change", renderSchedule);
+  if (search) search.addEventListener("input", renderSchedule);
+
+  if (rosterSearch) rosterSearch.addEventListener("input", renderRoster);
+  if (rosterPos) rosterPos.addEventListener("change", renderRoster);
 }
 
-// =======================
-// POLL (Fan Hub)
-// =======================
-function setupPoll() {
+// =====================
+// FAN POLL
+// =====================
+function initPoll() {
   const form = document.getElementById("fan-poll");
   const resultsDiv = document.getElementById("poll-results");
   if (!form || !resultsDiv) return;
@@ -119,30 +226,29 @@ function setupPoll() {
     return raw ? JSON.parse(raw) : { guard: 0, wing: 0, big: 0 };
   }
 
-  function saveResults(results) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(results));
+  function saveResults(data) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }
 
-  function renderResults() {
-    const results = loadResults();
-    const total = results.guard + results.wing + results.big;
+  function render() {
+    const data = loadResults();
+    const total = data.guard + data.wing + data.big;
     if (!total) {
       resultsDiv.textContent = "No votes yet. Be the first!";
       return;
     }
-    const pct = (v) => Math.round((v / total) * 100);
+    const pct = (x) => Math.round((x / total) * 100);
     resultsDiv.innerHTML = `
       <p><strong>Results:</strong></p>
       <ul>
-        <li>Lead Guard: ${results.guard} (${pct(results.guard)}%)</li>
-        <li>Wing Scorer: ${results.wing} (${pct(results.wing)}%)</li>
-        <li>Big Man: ${results.big} (${pct(results.big)}%)</li>
+        <li>Lead Guard: ${data.guard} (${pct(data.guard)}%)</li>
+        <li>Wing Scorer: ${data.wing} (${pct(data.wing)}%)</li>
+        <li>Big Man: ${data.big} (${pct(data.big)}%)</li>
       </ul>
-      <p style="font-size:0.78rem;color:#6b7280;">Votes are stored locally on this device.</p>
     `;
   }
 
-  renderResults();
+  render();
 
   form.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -151,52 +257,68 @@ function setupPoll() {
       alert("Please select an option before voting.");
       return;
     }
-    const results = loadResults();
-    results[choice.value] = (results[choice.value] || 0) + 1;
-    saveResults(results);
-    renderResults();
+    const data = loadResults();
+    data[choice.value] = (data[choice.value] || 0) + 1;
+    saveResults(data);
+    render();
   });
 }
 
-// =======================
-// DATA LOADING
-// =======================
-async function loadSeasonData(season) {
+// =====================
+// DATA LOADING (ALL AT ONCE)
+// =====================
+async function loadAllData() {
   const loading = document.getElementById("global-loading");
   const errorDiv = document.getElementById("global-error");
   if (loading) loading.classList.remove("hidden");
   if (errorDiv) errorDiv.classList.add("hidden");
 
   try {
-    const schedulePromise =
-      state.scheduleBySeason[season]
-        ? Promise.resolve(state.scheduleBySeason[season])
-        : fetchJson(`${API_CONFIG.baseUrlScores}/TeamSchedule/${season}/${API_CONFIG.teamKey}`);
+    const results = await Promise.allSettled([
+      fetchJson(urlScores(ENDPOINTS.schedulesMultiSeason)),           // 0
+      fetchJson(urlStats(ENDPOINTS.playerSeasonStatsMultiSeason)),    // 1
+      fetchJson(urlScores(ENDPOINTS.teamSeasonStatsMultiSeason)),     // 2
+      fetchJson(urlScores(ENDPOINTS.playersByTeam)),                  // 3
+      fetchJson(urlScores(ENDPOINTS.currentSeason)),                  // 4
+      fetchJson(urlScores(ENDPOINTS.areAnyGamesInProgress)),          // 5
+      fetchJson(urlOdds(ENDPOINTS.activeSportsbooks))                 // 6
+    ]);
 
-    const statsPromise =
-      state.statsBySeason[season]
-        ? Promise.resolve(state.statsBySeason[season])
-        : fetchJson(
-            `${API_CONFIG.baseUrlStats}/PlayerSeasonStatsByTeam/${season}/${API_CONFIG.teamKey}`
-          );
+    const get = (i) => (results[i].status === "fulfilled" ? results[i].value : null);
 
-    const [schedule, stats] = await Promise.all([schedulePromise, statsPromise]);
+    const scheduleAll = get(0) || [];
+    const playerStatsAll = get(1) || [];
+    const teamSeasonStatsAll = get(2) || [];
+    const playersAll = get(3) || [];
+    const currentSeasonVal = get(4);
+    const gamesInProgressVal = get(5);
+    const activeSportsbooks = get(6) || [];
 
-    state.scheduleBySeason[season] = Array.isArray(schedule) ? schedule : [];
-    state.statsBySeason[season] = Array.isArray(stats) ? stats : [];
+    state.scheduleAll = Array.isArray(scheduleAll) ? scheduleAll : [];
+    state.playerSeasonStatsAll = Array.isArray(playerStatsAll) ? playerStatsAll : [];
+    state.teamSeasonStatsAll = Array.isArray(teamSeasonStatsAll) ? teamSeasonStatsAll : [];
+    state.playersAll = Array.isArray(playersAll) ? playersAll : [];
+    state.gamesInProgress = gamesInProgressVal;
+    state.activeSportsbooks = Array.isArray(activeSportsbooks) ? activeSportsbooks : [];
 
-    // Render everything
-    renderScheduleTable();
-    renderNextGameAndQuickGlance();
-    renderRoster();
-    renderStats();
-    renderAnalytics();
-    renderTicketsSection();
+    // Use CurrentSeason endpoint if it returns a season we support
+    let seasonFromApi = null;
+    if (typeof currentSeasonVal === "number") {
+      seasonFromApi = currentSeasonVal;
+    } else if (currentSeasonVal && typeof currentSeasonVal.Season === "number") {
+      seasonFromApi = currentSeasonVal.Season;
+    }
+    if (seasonFromApi && state.seasons.includes(seasonFromApi)) {
+      state.currentSeason = seasonFromApi;
+    }
+
+    syncSeasonSelectors(state.currentSeason);
+    renderAll();
   } catch (err) {
-    console.error("Error loading season data:", err);
+    console.error("Error loading data:", err);
     if (errorDiv) {
       errorDiv.textContent =
-        "Error loading data from SportsDataIO. Open the console for details and check your endpoints/key.";
+        "Error loading data from SportsDataIO – check your endpoints and key.";
       errorDiv.classList.remove("hidden");
     }
   } finally {
@@ -204,75 +326,90 @@ async function loadSeasonData(season) {
   }
 }
 
-// Generic fetch helper using API key in header
 async function fetchJson(url) {
-  const res = await fetch(url, {
-    headers: {
-      "Ocp-Apim-Subscription-Key": API_CONFIG.apiKey
-    }
-  });
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status} for ${url}`);
-  }
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
   return res.json();
 }
 
-// =======================
+// =====================
+// RENDER ALL
+// =====================
+function renderAll() {
+  renderSchedule();
+  renderHeroFromState();
+  renderRoster();
+  renderStats();
+  renderAnalytics();
+  renderTickets();
+}
+
+// =====================
 // SCHEDULE + HERO
-// =======================
-function renderScheduleTable() {
+// =====================
+function getSeasonSchedule() {
+  return (state.scheduleAll || []).filter((g) => g.Season === state.currentSeason);
+}
+
+function getSeasonPlayerStats() {
+  return (state.playerSeasonStatsAll || []).filter((p) => p.Season === state.currentSeason);
+}
+
+function getSeasonTeamSeasonStats() {
   const season = state.currentSeason;
+  return (state.teamSeasonStatsAll || []).find(
+    (t) =>
+      t.Season === season &&
+      (t.Team === "Florida" || t.Key === API_CONFIG.teamKey || t.School === "Florida")
+  );
+}
+
+function renderSchedule() {
   const tbody = document.getElementById("schedule-table-body");
   if (!tbody) return;
 
-  const schedule = state.scheduleBySeason[season] || [];
+  const schedule = getSeasonSchedule();
   const upcomingOnly = document.getElementById("schedule-upcoming-only")?.checked;
+  const searchValue = (document.getElementById("schedule-search")?.value || "").toLowerCase();
+  const now = new Date();
 
   tbody.innerHTML = "";
 
-  const now = new Date();
   const rows = schedule
-    .filter((game) => {
-      if (!upcomingOnly) return true;
-      const dt = parseSportsDataDate(game.Day || game.DateTime);
-      return dt && dt >= now;
+    .map((g) => ({ g, dt: parseSportsDataDate(g.Day || g.DateTime) }))
+    .filter(({ g, dt }) => {
+      if (upcomingOnly && dt && dt < now) return false;
+      const oppName = getOpponentName(g).toLowerCase();
+      if (searchValue && !oppName.includes(searchValue)) return false;
+      return true;
     })
-    .sort((a, b) => {
-      const da = parseSportsDataDate(a.Day || a.DateTime);
-      const db = parseSportsDataDate(b.Day || b.DateTime);
-      return (da?.getTime() || 0) - (db?.getTime() || 0);
-    });
+    .sort((a, b) => (a.dt?.getTime() || 0) - (b.dt?.getTime() || 0));
 
   if (!rows.length) {
     const tr = document.createElement("tr");
-    const td = document.createElement("td");
-    td.colSpan = 5;
-    td.className = "placeholder";
-    td.textContent = "No games found for this season.";
-    tr.appendChild(td);
+    tr.innerHTML =
+      '<td colspan="5" class="placeholder">No games found. Check filters and season.</td>';
     tbody.appendChild(tr);
     return;
   }
 
-  rows.forEach((game) => {
+  rows.forEach(({ g, dt }) => {
     const tr = document.createElement("tr");
-    const date = parseSportsDataDate(game.Day || game.DateTime);
-    const opponentName = getOpponentName(game);
-    const location = game.HomeTeam === API_CONFIG.teamKey ? "Home" : "Away";
-
-    const resultString = buildResultString(game);
-    const recordString = game.HomeTeam === API_CONFIG.teamKey
-      ? `${game.HomeTeamWins || ""}-${game.HomeTeamLosses || ""}`
-      : `${game.AwayTeamWins || ""}-${game.AwayTeamLosses || ""}`;
+    const loc = g.HomeTeam === API_CONFIG.teamKey ? "Home" : "Away";
+    const result = buildResultString(g);
+    const record =
+      g.HomeTeam === API_CONFIG.teamKey
+        ? `${g.HomeTeamWins ?? ""}-${g.HomeTeamLosses ?? ""}`
+        : `${g.AwayTeamWins ?? ""}-${g.AwayTeamLosses ?? ""}`;
 
     tr.innerHTML = `
-      <td>${date ? formatDate(date) : "-"}</td>
-      <td>${opponentName}</td>
-      <td>${location}</td>
-      <td>${resultString}</td>
-      <td>${recordString}</td>
+      <td>${dt ? formatDate(dt) : "-"}</td>
+      <td>${getOpponentName(g)}</td>
+      <td>${loc}</td>
+      <td>${result}</td>
+      <td>${record}</td>
     `;
-    tr.addEventListener("click", () => showGameDetail(game));
+    tr.addEventListener("click", () => showGameDetail(g));
     tbody.appendChild(tr);
   });
 }
@@ -281,12 +418,13 @@ function getOpponentName(game) {
   const ourKey = API_CONFIG.teamKey;
   const isHome = game.HomeTeam === ourKey;
   const oppKey = isHome ? game.AwayTeam : game.HomeTeam;
-  // Many schedules include AwayTeam / HomeTeam plus detail fields like AwayTeamName, etc.
-  const name =
+  return (
     (isHome ? game.AwayTeamName : game.HomeTeamName) ||
+    game.GlobalAwayTeamName ||
+    game.GlobalHomeTeamName ||
     oppKey ||
-    "Opponent TBA";
-  return name;
+    "TBA"
+  );
 }
 
 function buildResultString(game) {
@@ -303,105 +441,68 @@ function buildResultString(game) {
 }
 
 function showGameDetail(game) {
-  const box = document.getElementById("game-detail");
-  const content = document.getElementById("game-detail-content");
-  if (!box || !content) return;
+  const card = document.getElementById("game-detail-card");
+  const body = document.getElementById("game-detail-body");
+  if (!card || !body) return;
 
-  const date = parseSportsDataDate(game.Day || game.DateTime);
-  const opponentName = getOpponentName(game);
-  const location = game.HomeTeam === API_CONFIG.teamKey ? "Home" : "Away";
+  const dt = parseSportsDataDate(game.Day || game.DateTime);
+  const loc = game.HomeTeam === API_CONFIG.teamKey ? "Home" : "Away";
   const result = buildResultString(game);
 
-  content.innerHTML = `
-    <p><strong>${opponentName}</strong> (${location})</p>
-    <p>Date/Time: ${date ? date.toLocaleString() : "TBA"}</p>
-    <p>Status/Result: ${result}</p>
-    <p>Attendance: ${game.Attendance ?? "N/A"}</p>
+  body.innerHTML = `
+    <p><strong>${getOpponentName(game)}</strong> (${loc})</p>
+    <p>Date / Time: ${dt ? dt.toLocaleString() : "TBA"}</p>
+    <p>Status / Result: ${result}</p>
     <p>TV: ${game.Channel || "TBA"}</p>
+    <p>Attendance: ${game.Attendance ?? "N/A"}</p>
   `;
-  box.classList.remove("hidden");
+  card.classList.remove("hidden");
 }
 
-// Hero / Quick glance / Countdown
-function renderNextGameAndQuickGlance() {
-  const season = state.currentSeason;
-  const schedule = state.scheduleBySeason[season] || [];
+function renderHeroFromState() {
+  const schedule = getSeasonSchedule();
+  const stats = getSeasonPlayerStats();
+
+  // Live badge from AreAnyGamesInProgress
+  const liveBadge = document.getElementById("live-badge");
+  if (liveBadge) {
+    const val = state.gamesInProgress;
+    const isLive = val === true || val === "true";
+    liveBadge.classList.toggle("hidden", !isLive);
+  }
+
+  // Next game + countdown
   const nextGame = findNextGame(schedule);
-  const opponentEl = document.getElementById("next-game-opponent");
+  const oppEl = document.getElementById("next-game-opponent");
   const metaEl = document.getElementById("next-game-meta");
 
-  if (!opponentEl || !metaEl) return;
-
-  if (!nextGame) {
-    opponentEl.textContent = "No upcoming games.";
-    metaEl.textContent = "";
-    clearCountdown();
-  } else {
-    const date = parseSportsDataDate(nextGame.Day || nextGame.DateTime);
-    opponentEl.textContent = getOpponentName(nextGame);
-    metaEl.textContent = date
-      ? `${date.toLocaleString()} • ${
+  if (nextGame && oppEl && metaEl) {
+    const dt = parseSportsDataDate(nextGame.Day || nextGame.DateTime);
+    oppEl.textContent = getOpponentName(nextGame);
+    metaEl.textContent = dt
+      ? `${dt.toLocaleString()} • ${
           nextGame.HomeTeam === API_CONFIG.teamKey ? "Home" : "Away"
         }`
-      : `${nextGame.HomeTeam === API_CONFIG.teamKey ? "Home" : "Away"}`;
-
-    startCountdown(date);
+      : nextGame.HomeTeam === API_CONFIG.teamKey
+      ? "Home"
+      : "Away";
+    startCountdown(dt);
+  } else if (oppEl && metaEl) {
+    oppEl.textContent = "No upcoming games.";
+    metaEl.textContent = "";
+    stopCountdown();
   }
 
-  // Quick glance from stats/schedule
-  renderQuickGlance(schedule);
-}
-
-function findNextGame(schedule) {
-  const now = new Date();
-  const upcoming = schedule
-    .map((g) => ({ game: g, dt: parseSportsDataDate(g.Day || g.DateTime) }))
-    .filter((x) => x.dt && x.dt >= now)
-    .sort((a, b) => a.dt - b.dt);
-  return upcoming.length ? upcoming[0].game : null;
-}
-
-function startCountdown(targetDate) {
-  const timerEl = document.getElementById("countdown-timer");
-  clearCountdown();
-  if (!timerEl || !targetDate) return;
-
-  function update() {
-    const now = new Date();
-    const diff = targetDate - now;
-    if (diff <= 0) {
-      timerEl.textContent = "00:00:00:00";
-      clearCountdown();
-      return;
-    }
-    const days = Math.floor(diff / (24 * 60 * 60 * 1000));
-    const hours = Math.floor((diff / (60 * 60 * 1000)) % 24);
-    const mins = Math.floor((diff / (60 * 1000)) % 60);
-    const secs = Math.floor((diff / 1000) % 60);
-    timerEl.textContent = `${pad2(days)}d ${pad2(hours)}h ${pad2(mins)}m ${pad2(secs)}s`;
-  }
-
-  update();
-  state.countdownInterval = setInterval(update, 1000);
-}
-
-function clearCountdown() {
-  if (state.countdownInterval) {
-    clearInterval(state.countdownInterval);
-    state.countdownInterval = null;
-  }
-}
-
-function renderQuickGlance(schedule) {
-  const stats = state.statsBySeason[state.currentSeason] || [];
+  // Quick record + PPG/RPG + last 5
   const recordEl = document.getElementById("quick-record");
   const ppgEl = document.getElementById("quick-ppg");
   const rpgEl = document.getElementById("quick-rpg");
   const last5El = document.getElementById("quick-last5");
 
-  // Record from schedule
   let wins = 0;
   let losses = 0;
+  const finals = [];
+
   schedule.forEach((g) => {
     if (g.Status !== "Final") return;
     const isHome = g.HomeTeam === API_CONFIG.teamKey;
@@ -410,108 +511,170 @@ function renderQuickGlance(schedule) {
     if (ourScore == null || oppScore == null) return;
     if (ourScore > oppScore) wins++;
     else if (ourScore < oppScore) losses++;
+    finals.push({ ourScore, oppScore });
   });
-  if (recordEl) {
-    recordEl.textContent = wins + losses > 0 ? `${wins}-${losses}` : "–";
+
+  if (recordEl) recordEl.textContent = wins + losses ? `${wins}-${losses}` : "–";
+
+  // Prefer team-level stats if available
+  const teamSeason = getSeasonTeamSeasonStats();
+  let ppg = null;
+  let rpg = null;
+  if (teamSeason && typeof teamSeason.PointsPerGame === "number") {
+    ppg = teamSeason.PointsPerGame;
+  }
+  if (teamSeason && typeof teamSeason.ReboundsPerGame === "number") {
+    rpg = teamSeason.ReboundsPerGame;
   }
 
-  // PPG/RPG from players
-  let totalPoints = 0;
-  let totalReb = 0;
-  let totalGames = 0;
-  stats.forEach((p) => {
-    const games = p.Games || p.GamesPlayed || 0;
-    totalPoints += p.Points || 0;
-    totalReb += p.Rebounds || 0;
-    totalGames = Math.max(totalGames, games);
-  });
-  if (ppgEl) {
-    const teamPPG = totalGames ? (totalPoints / totalGames).toFixed(1) : "–";
-    ppgEl.textContent = teamPPG;
-  }
-  if (rpgEl) {
-    const teamRPG = totalGames ? (totalReb / totalGames).toFixed(1) : "–";
-    rpgEl.textContent = teamRPG;
+  if (ppg == null || rpg == null) {
+    let totalPoints = 0;
+    let totalReb = 0;
+    let totalGames = 0;
+    stats.forEach((p) => {
+      const g = p.Games || p.GamesPlayed || 0;
+      totalPoints += p.Points || 0;
+      totalReb += p.Rebounds || 0;
+      totalGames = Math.max(totalGames, g);
+    });
+    if (ppg == null) ppg = totalGames ? totalPoints / totalGames : null;
+    if (rpg == null) rpg = totalGames ? totalReb / totalGames : null;
   }
 
-  // Last 5 W/L
-  const finals = schedule
+  if (ppgEl) ppgEl.textContent = ppg != null ? ppg.toFixed(1) : "–";
+  if (rpgEl) rpgEl.textContent = rpg != null ? rpg.toFixed(1) : "–";
+
+  const last5 = schedule
     .filter((g) => g.Status === "Final")
+    .slice(-5)
     .map((g) => {
       const isHome = g.HomeTeam === API_CONFIG.teamKey;
-      const ourScore = isHome ? g.HomeTeamScore : g.AwayTeamScore;
-      const oppScore = isHome ? g.AwayTeamScore : g.HomeTeamScore;
-      if (ourScore == null || oppScore == null) return null;
-      return ourScore > oppScore ? "W" : ourScore < oppScore ? "L" : "T";
+      const our = isHome ? g.HomeTeamScore : g.AwayTeamScore;
+      const opp = isHome ? g.AwayTeamScore : g.HomeTeamScore;
+      if (our == null || opp == null) return null;
+      return our > opp ? "W" : our < opp ? "L" : "T";
     })
-    .filter(Boolean)
-    .slice(-5);
+    .filter(Boolean);
 
-  if (last5El) {
-    last5El.textContent = finals.length ? finals.join(" ") : "–";
+  if (last5El) last5El.textContent = last5.length ? last5.join(" ") : "–";
+}
+
+function findNextGame(schedule) {
+  const now = new Date();
+  const upcoming = schedule
+    .map((g) => ({ g, dt: parseSportsDataDate(g.Day || g.DateTime) }))
+    .filter(({ dt }) => dt && dt >= now)
+    .sort((a, b) => (a.dt?.getTime() || 0) - (b.dt?.getTime() || 0));
+  return upcoming.length ? upcoming[0].g : null;
+}
+
+function startCountdown(target) {
+  const el = document.getElementById("countdown-timer");
+  stopCountdown();
+  if (!el || !target) return;
+
+  function tick() {
+    const now = new Date();
+    const diff = target - now;
+    if (diff <= 0) {
+      el.textContent = "00d 00h 00m 00s";
+      stopCountdown();
+      return;
+    }
+    const days = Math.floor(diff / (24 * 60 * 60 * 1000));
+    const hours = Math.floor((diff / (60 * 60 * 1000)) % 24);
+    const mins = Math.floor((diff / (60 * 1000)) % 60);
+    const secs = Math.floor((diff / 1000) % 60);
+    el.textContent = `${pad2(days)}d ${pad2(hours)}h ${pad2(mins)}m ${pad2(secs)}s`;
+  }
+
+  tick();
+  state.countdownInterval = setInterval(tick, 1000);
+}
+
+function stopCountdown() {
+  if (state.countdownInterval) {
+    clearInterval(state.countdownInterval);
+    state.countdownInterval = null;
   }
 }
 
-// =======================
+// =====================
 // ROSTER
-// =======================
+// =====================
 function renderRoster() {
-  const season = state.currentSeason;
-  const stats = state.statsBySeason[season] || [];
-  const currentContainer = document.getElementById("roster-current");
-  const formerContainer = document.getElementById("roster-former");
-  if (!currentContainer || !formerContainer) return;
+  const currentSeason = state.currentSeason;
+  const statsThisSeason = getSeasonPlayerStats();
+
+  const currentEl = document.getElementById("roster-current");
+  const formerEl = document.getElementById("roster-former");
+  if (!currentEl || !formerEl) return;
 
   const searchValue = (document.getElementById("roster-search")?.value || "")
     .trim()
     .toLowerCase();
   const posFilter = document.getElementById("roster-position-filter")?.value || "all";
 
-  // Current season players from stats
-  const players = dedupePlayers(stats);
+  const playersMap = new Map();
+  (state.playersAll || []).forEach((p) => {
+    const key = p.PlayerID || `${p.FirstName || ""} ${p.LastName || ""}`.trim();
+    if (!key) return;
+    playersMap.set(key, p);
+  });
 
-  const filtered = players.filter((p) => {
+  // Current season from PlayerSeasonStatsByTeam
+  const currentPlayers = dedupePlayers(statsThisSeason).filter((p) => {
     if (searchValue && !p.Name.toLowerCase().includes(searchValue)) return false;
     if (posFilter !== "all" && p.Position && p.Position !== posFilter) return false;
     return true;
   });
 
-  currentContainer.innerHTML = "";
-  if (!filtered.length) {
-    currentContainer.innerHTML =
-      '<p class="placeholder">No players match your filters yet.</p>';
+  currentEl.innerHTML = "";
+  if (!currentPlayers.length) {
+    currentEl.innerHTML = '<p class="placeholder">No players match your filters.</p>';
   } else {
-    filtered.forEach((p) => {
+    currentPlayers.forEach((p) => {
+      const fullPlayer = playersMap.get(p.PlayerID) || playersMap.get(p.Name) || {};
       const card = document.createElement("div");
       card.className = "roster-card";
       card.innerHTML = `
         <h4>${p.Jersey ? "#" + p.Jersey + " " : ""}${p.Name}</h4>
         <div class="roster-meta">
-          <div>${p.Position || "Pos TBA"} • ${p.Class || ""}</div>
-          <div>${p.Height || ""} ${p.Weight ? "• " + p.Weight + " lbs" : ""}</div>
+          <div>${p.Position || fullPlayer.Position || "Pos"}${
+        p.Class ? " • " + p.Class : ""
+      }</div>
+          <div>${fullPlayer.Height || p.Height || ""}${
+        fullPlayer.Weight || p.Weight ? " • " + (fullPlayer.Weight || p.Weight) + " lbs" : ""
+      }</div>
         </div>
       `;
-      currentContainer.appendChild(card);
+      currentEl.appendChild(card);
     });
   }
 
-  // Former players: union of all selected past seasons – for now just use other seasons
-  const former = new Map();
-  API_CONFIG.seasonOptions.forEach((yr) => {
-    if (yr === season) return;
-    const s = state.statsBySeason[yr] || [];
-    dedupePlayers(s).forEach((p) => {
-      const key = p.PlayerID || p.Name;
-      if (!former.has(key)) former.set(key, { ...p, season: yr });
-    });
+  // Former players: players that appear in other seasons
+  const formerMap = new Map();
+  (state.playerSeasonStatsAll || []).forEach((p) => {
+    if (p.Season === currentSeason) return;
+    const key = p.PlayerID || p.Name;
+    if (!key) return;
+    if (!formerMap.has(key)) {
+      formerMap.set(key, {
+        PlayerID: p.PlayerID,
+        Name: p.Name || `${p.FirstName || ""} ${p.LastName || ""}`.trim(),
+        Position: p.Position,
+        Jersey: p.Jersey,
+        season: p.Season
+      });
+    }
   });
 
-  formerContainer.innerHTML = "";
-  if (!former.size) {
-    formerContainer.innerHTML =
-      '<p class="placeholder">Load a previous season to populate former players.</p>';
+  formerEl.innerHTML = "";
+  if (!formerMap.size) {
+    formerEl.innerHTML =
+      '<p class="placeholder">Load another season to see former players.</p>';
   } else {
-    Array.from(former.values())
+    Array.from(formerMap.values())
       .sort((a, b) => a.season - b.season)
       .forEach((p) => {
         const card = document.createElement("div");
@@ -520,17 +683,17 @@ function renderRoster() {
           <h4>${p.Name}</h4>
           <div class="roster-meta">
             <div>Season: ${p.season}</div>
-            <div>${p.Position || "Pos TBA"}${p.Jersey ? " • #" + p.Jersey : ""}</div>
+            <div>${p.Position || "Pos"}${p.Jersey ? " • #" + p.Jersey : ""}</div>
           </div>
         `;
-        formerContainer.appendChild(card);
+        formerEl.appendChild(card);
       });
   }
 }
 
 function dedupePlayers(statsArr) {
   const map = new Map();
-  statsArr.forEach((p) => {
+  (statsArr || []).forEach((p) => {
     const key = p.PlayerID || p.Name;
     if (!key) return;
     if (!map.has(key)) {
@@ -548,37 +711,34 @@ function dedupePlayers(statsArr) {
   return Array.from(map.values());
 }
 
-// =======================
+// =====================
 // STATS
-// =======================
+// =====================
 function renderStats() {
-  const season = state.currentSeason;
-  const stats = state.statsBySeason[season] || [];
+  const stats = getSeasonPlayerStats();
   const tbody = document.getElementById("stats-table-body");
-  const leadersDiv = document.getElementById("stats-leaders");
+  const leadersEl = document.getElementById("stats-leaders");
   const propsList = document.getElementById("props-ideas");
-  if (!tbody || !leadersDiv || !propsList) return;
+  const sportsbooksNote = document.getElementById("sportsbooks-note");
+  if (!tbody || !leadersEl || !propsList) return;
 
   tbody.innerHTML = "";
+  leadersEl.innerHTML = "";
+  propsList.innerHTML = "";
+  if (sportsbooksNote) sportsbooksNote.textContent = "";
 
   if (!stats.length) {
-    const tr = document.createElement("tr");
-    const td = document.createElement("td");
-    td.colSpan = 7;
-    td.className = "placeholder";
-    td.textContent =
-      "No stats yet. Check your Stats endpoint and make sure the season is correct.";
-    tr.appendChild(td);
-    tbody.appendChild(tr);
-    leadersDiv.textContent = "";
-    propsList.innerHTML = "";
+    tbody.innerHTML =
+      '<tr><td colspan="7" class="placeholder">No stats loaded. Check season or plan permissions.</td></tr>';
     return;
   }
 
   const rows = stats.slice().sort((a, b) => {
-    const apgA = (a.Points || 0) / (a.Games || a.GamesPlayed || 1);
-    const apgB = (b.Points || 0) / (b.Games || b.GamesPlayed || 1);
-    return apgB - apgA;
+    const ga = a.Games || a.GamesPlayed || 0;
+    const gb = b.Games || b.GamesPlayed || 0;
+    const ppgA = ga ? (a.Points || 0) / ga : 0;
+    const ppgB = gb ? (b.Points || 0) / gb : 0;
+    return ppgB - ppgA;
   });
 
   rows.forEach((p) => {
@@ -586,7 +746,6 @@ function renderStats() {
     const ppg = games ? (p.Points || 0) / games : 0;
     const rpg = games ? (p.Rebounds || 0) / games : 0;
     const apg = games ? (p.Assists || 0) / games : 0;
-
     const threePct = p.ThreePointersPercentage ?? p.ThreePointPercentage ?? null;
     const ftPct = p.FreeThrowsPercentage ?? p.FreeThrowPercentage ?? null;
 
@@ -603,14 +762,13 @@ function renderStats() {
     tbody.appendChild(tr);
   });
 
-  // Leaders
   const leaderBy = (getVal) =>
     rows.reduce(
       (best, p) => {
-        const games = p.Games || p.GamesPlayed || 0;
-        if (!games) return best;
-        const val = getVal(p, games);
-        return val > best.value ? { player: p, value: val } : best;
+        const g = p.Games || p.GamesPlayed || 0;
+        if (!g) return best;
+        const v = getVal(p, g);
+        return v > best.value ? { player: p, value: v } : best;
       },
       { player: null, value: -Infinity }
     );
@@ -619,156 +777,172 @@ function renderStats() {
   const rebLeader = leaderBy((p, g) => (p.Rebounds || 0) / g);
   const astLeader = leaderBy((p, g) => (p.Assists || 0) / g);
 
-  leadersDiv.innerHTML = "";
-  [ ["PPG", ptsLeader], ["RPG", rebLeader], ["APG", astLeader] ].forEach(
-    ([label, obj]) => {
-      if (!obj.player) return;
-      const el = document.createElement("div");
-      el.className = "leader";
-      el.innerHTML = `
-        <span>${label}: ${obj.player.Name}</span>
-        <strong>${obj.value.toFixed(1)}</strong>
-      `;
-      leadersDiv.appendChild(el);
-    }
-  );
+  [
+    ["PPG", ptsLeader],
+    ["RPG", rebLeader],
+    ["APG", astLeader]
+  ].forEach(([label, obj]) => {
+    if (!obj.player) return;
+    const div = document.createElement("div");
+    div.className = "leader";
+    div.innerHTML = `
+      <span>${label}: ${obj.player.Name}</span>
+      <strong>${obj.value.toFixed(1)}</strong>
+    `;
+    leadersEl.appendChild(div);
+  });
 
-  // Simple props ideas (for fun, not gambling)
-  propsList.innerHTML = "";
   rows.slice(0, 5).forEach((p) => {
-    const games = p.Games || p.GamesPlayed || 0;
-    if (!games) return;
-    const ppg = (p.Points || 0) / games;
-    const propLine = Math.round(ppg - 0.5);
+    const g = p.Games || p.GamesPlayed || 0;
+    if (!g) return;
+    const ppg = (p.Points || 0) / g;
+    const line = Math.round(ppg - 0.5);
     const li = document.createElement("li");
-    li.textContent = `${p.Name}: Over/Under ${propLine}.5 points`;
+    li.textContent = `${p.Name}: Over/Under ${line}.5 points`;
     propsList.appendChild(li);
   });
+
+  if (sportsbooksNote && state.activeSportsbooks.length) {
+    const names = state.activeSportsbooks
+      .map((sb) => sb.Name)
+      .filter(Boolean)
+      .slice(0, 5);
+    if (names.length) {
+      sportsbooksNote.textContent = `SportsDataIO active sportsbooks feed currently includes: ${names.join(
+        ", "
+      )}.`;
+    }
+  }
 }
 
-// =======================
+// =====================
 // ANALYTICS
-// =======================
+// =====================
 function renderAnalytics() {
-  const season = state.currentSeason;
-  const schedule = state.scheduleBySeason[season] || [];
+  const schedule = getSeasonSchedule();
+  const recordEl = document.getElementById("analytics-record");
+  const scoringEl = document.getElementById("analytics-scoring");
+  const last5El = document.getElementById("analytics-last5");
 
-  const recordList = document.getElementById("analytics-record-split");
-  const scoringList = document.getElementById("analytics-scoring");
-  const last5List = document.getElementById("analytics-last5");
-  if (!recordList || !scoringList || !last5List) return;
+  if (!recordEl || !scoringEl || !last5El) return;
 
-  const finals = schedule.filter((g) => g.Status === "Final");
-
-  // Record splits
-  let homeW = 0, homeL = 0, awayW = 0, awayL = 0;
-  let totalPts = 0, totalAllowed = 0, totalGames = 0;
-  const gamesSorted = finals
+  const finals = schedule
+    .filter((g) => g.Status === "Final")
     .map((g) => ({ g, dt: parseSportsDataDate(g.Day || g.DateTime) }))
     .sort((a, b) => (a.dt?.getTime() || 0) - (b.dt?.getTime() || 0));
 
-  gamesSorted.forEach(({ g }) => {
+  let homeW = 0,
+    homeL = 0,
+    awayW = 0,
+    awayL = 0;
+  let totalPts = 0,
+    totalAllow = 0,
+    gamesCount = 0;
+
+  finals.forEach(({ g }) => {
     const isHome = g.HomeTeam === API_CONFIG.teamKey;
-    const ourScore = isHome ? g.HomeTeamScore : g.AwayTeamScore;
-    const oppScore = isHome ? g.AwayTeamScore : g.HomeTeamScore;
-    if (ourScore == null || oppScore == null) return;
+    const our = isHome ? g.HomeTeamScore : g.AwayTeamScore;
+    const opp = isHome ? g.AwayTeamScore : g.HomeTeamScore;
+    if (our == null || opp == null) return;
     if (isHome) {
-      if (ourScore > oppScore) homeW++;
-      else if (ourScore < oppScore) homeL++;
+      if (our > opp) homeW++;
+      else if (our < opp) homeL++;
     } else {
-      if (ourScore > oppScore) awayW++;
-      else if (ourScore < oppScore) awayL++;
+      if (our > opp) awayW++;
+      else if (our < opp) awayL++;
     }
-    totalPts += ourScore;
-    totalAllowed += oppScore;
-    totalGames++;
+    totalPts += our;
+    totalAllow += opp;
+    gamesCount++;
   });
 
-  recordList.innerHTML = `
+  recordEl.innerHTML = `
     <li>Home: ${homeW}-${homeL}</li>
     <li>Away: ${awayW}-${awayL}</li>
     <li>Total: ${homeW + awayW}-${homeL + awayL}</li>
   `;
 
-  const avgFor = totalGames ? totalPts / totalGames : 0;
-  const avgAgainst = totalGames ? totalAllowed / totalGames : 0;
+  const avgFor = gamesCount ? totalPts / gamesCount : 0;
+  const avgAgainst = gamesCount ? totalAllow / gamesCount : 0;
   const margin = avgFor - avgAgainst;
+  const tempoApprox = avgFor + avgAgainst;
 
-  scoringList.innerHTML = `
+  scoringEl.innerHTML = `
     <li>Offensive PPG (approx): ${avgFor.toFixed(1)}</li>
     <li>Defensive PPG (approx): ${avgAgainst.toFixed(1)}</li>
     <li>Average Margin: ${margin >= 0 ? "+" : ""}${margin.toFixed(1)}</li>
-  `;
+    <li>Tempo-ish (combined PPG): ${tempoApprox.toFixed(1)}</li>
+  ";
 
-  // Last 5
-  last5List.innerHTML = "";
-  gamesSorted.slice(-5).forEach(({ g }) => {
-    const dt = parseSportsDataDate(g.Day || g.DateTime);
+  last5El.innerHTML = "";
+  finals.slice(-5).forEach(({ g, dt }) => {
     const isHome = g.HomeTeam === API_CONFIG.teamKey;
-    const ourScore = isHome ? g.HomeTeamScore : g.AwayTeamScore;
-    const oppScore = isHome ? g.AwayTeamScore : g.HomeTeamScore;
-    if (ourScore == null || oppScore == null) return;
-    const result = ourScore > oppScore ? "W" : ourScore < oppScore ? "L" : "T";
-    const marginGame = ourScore - oppScore;
+    const our = isHome ? g.HomeTeamScore : g.AwayTeamScore;
+    const opp = isHome ? g.AwayTeamScore : g.HomeTeamScore;
+    if (our == null || opp == null) return;
+    const res = our > opp ? "W" : our < opp ? "L" : "T";
+    const marginGame = our - opp;
     const li = document.createElement("li");
-    li.textContent = `${dt ? formatDate(dt) : ""} vs ${getOpponentName(g)}: ${result} ${
-      ourScore
-    }-${oppScore} (margin ${marginGame >= 0 ? "+" : ""}${marginGame})`;
-    last5List.appendChild(li);
+    li.textContent = `${dt ? formatDate(dt) : ""} vs ${getOpponentName(g)}: ${res} ${our}-${opp} (margin ${
+      marginGame >= 0 ? "+" : ""
+    }${marginGame})`;
+    last5El.appendChild(li);
   });
 }
 
-// =======================
-// TICKETS (static price placeholders)
-// =======================
-function renderTicketsSection() {
-  const season = state.currentSeason;
-  const schedule = state.scheduleBySeason[season] || [];
+// =====================
+// TICKETS
+// =====================
+function renderTickets() {
+  const schedule = getSeasonSchedule();
   const grid = document.getElementById("tickets-grid");
   if (!grid) return;
 
+  const now = new Date();
   const homeUpcoming = schedule
     .filter((g) => g.HomeTeam === API_CONFIG.teamKey)
     .map((g) => ({ g, dt: parseSportsDataDate(g.Day || g.DateTime) }))
-    .filter((x) => x.dt && x.dt >= new Date())
-    .sort((a, b) => a.dt - b.dt)
+    .filter(({ dt }) => dt && dt >= now)
+    .sort((a, b) => (a.dt?.getTime() || 0) - (b.dt?.getTime() || 0))
     .slice(0, 6);
 
   grid.innerHTML = "";
-
   if (!homeUpcoming.length) {
-    grid.innerHTML = '<p class="placeholder">No upcoming home games.</p>';
+    grid.innerHTML =
+      '<div class="card"><p class="placeholder">No upcoming home games found.</p></div>';
     return;
   }
 
   homeUpcoming.forEach(({ g, dt }) => {
     const card = document.createElement("div");
     card.className = "ticket-card";
-    const opp = getOpponentName(g);
     card.innerHTML = `
-      <h4>${opp}</h4>
+      <div class="ticket-head">
+        <strong>${getOpponentName(g)}</strong>
+      </div>
       <div class="ticket-meta">
         <div>${dt ? dt.toLocaleString() : "Date TBA"}</div>
-        <div>Location: Home (Gainesville)</div>
+        <div>Location: Gainesville (Home)</div>
       </div>
-      <div class="ticket-pricing">
-        <div>Lowest: <strong>TBD</strong></div>
-        <div>Average: <strong>TBD</strong></div>
+      <div class="ticket-price">
+        Lowest: <strong>TBD</strong> · Average: <strong>TBD</strong>
       </div>
-      <a class="btn primary" href="https://shop.floridagators.com/" target="_blank" rel="noopener noreferrer">
-        Find Tickets & Gear
-      </a>
+      <div style="margin-top:6px;">
+        <a class="btn btn-primary" href="https://shop.floridagators.com/"
+           target="_blank" rel="noopener noreferrer">
+          Find Tickets & Gear
+        </a>
+      </div>
     `;
     grid.appendChild(card);
   });
 }
 
-// =======================
+// =====================
 // HELPERS
-// =======================
+// =====================
 function parseSportsDataDate(value) {
   if (!value) return null;
-  // SportsDataIO uses ISO strings or "YYYY-MM-DDT..." formats.
   const d = new Date(value);
   return isNaN(d.getTime()) ? null : d;
 }
@@ -785,7 +959,7 @@ function pad2(n) {
   return n.toString().padStart(2, "0");
 }
 
-function formatPct(value) {
-  if (value == null) return "–";
-  return (value * 100).toFixed(1) + "%";
+function formatPct(v) {
+  if (v == null) return "–";
+  return (v * 100).toFixed(1) + "%";
 }
