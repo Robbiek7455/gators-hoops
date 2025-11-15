@@ -1,795 +1,791 @@
-/*****************************************************
- *  BASIC CONFIG – EDIT THESE FIRST
- *****************************************************/
+// =======================
+// CONFIG
+// =======================
+const API_CONFIG = {
+  apiKey: "635e15cefe1e475c8fdd13bfe3c8f6ef", // <-- put your SportsDataIO key here LOCALLY
+  season: 2025,                         // main season year (the year where most games happen)
+  seasonOptions: [2025, 2024, 2023,2022],    // add/remove as needed
+  teamKey: "FLA",                       // Florida Gators key - verify via Teams endpoint
+  baseUrlScores: "https://api.sportsdata.io/v3/cbb/scores/json",
+  baseUrlStats: "https://api.sportsdata.io/v3/cbb/stats/json"
+  // Endpoints used (to verify in your SportsDataIO portal):
+  // - GET /v3/cbb/scores/json/TeamSchedule/{season}/{team}
+  // - GET /v3/cbb/stats/json/PlayerSeasonStatsByTeam/{season}/{team}
+};
 
-// IMPORTANT: Do NOT commit your real key to a public repo.
-// For testing, keep the repo private, or move this to a serverless function later.
-const SPORTSDATA_API_KEY = "635e15cefe1e475c8fdd13bfe3c8f6ef"; // <- REPLACE with your key string
+// Global state (kept simple)
+const state = {
+  scheduleBySeason: {},
+  statsBySeason: {},
+  currentSeason: API_CONFIG.season,
+  countdownInterval: null
+};
 
-// SportsDataIO College Basketball base (confirmed by public examples) :contentReference[oaicite:3]{index=3}
-const CBB_SCORES_BASE = "https://api.sportsdata.io/v3/cbb/scores/json";
-const CBB_STATS_BASE  = "https://api.sportsdata.io/v3/cbb/stats/json";
+// =======================
+// INITIALIZATION
+// =======================
 
-// Florida Gators key in SportsDataIO CBB (you’ll confirm via Teams endpoint).
-// Often this is something like "FLA" or similar. We’ll detect it automatically.
-let FLORIDA_TEAM_KEY = null;
-let FLORIDA_TEAM_ID = null;
+document.addEventListener("DOMContentLoaded", () => {
+  setupTabs();
+  setupSeasonDropdowns();
+  setupPoll();
+  setupFilters();
+  loadSeasonData(API_CONFIG.season); // initial load
+});
 
-// Default season – SportsDataIO uses a single year (e.g. 2025 for 2025-26) :contentReference[oaicite:4]{index=4}
-const DEFAULT_SEASON = 2025;
+// =======================
+// TABS
+// =======================
+function setupTabs() {
+  const links = document.querySelectorAll(".nav-link");
+  const sections = document.querySelectorAll(".tab-section");
 
-/*****************************************************
- *  UTILS
- *****************************************************/
-
-function $(selector) {
-  return document.querySelector(selector);
-}
-
-function createEl(tag, className, text) {
-  const el = document.createElement(tag);
-  if (className) el.className = className;
-  if (text) el.textContent = text;
-  return el;
-}
-
-function formatDateTime(dateString) {
-  const d = new Date(dateString);
-  if (Number.isNaN(d.getTime())) return dateString;
-  return d.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function formatDate(dateString) {
-  const d = new Date(dateString);
-  if (Number.isNaN(d.getTime())) return dateString;
-  return d.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
-/*****************************************************
- *  NAVIGATION (TABS)
- *****************************************************/
-
-function initTabs() {
-  const buttons = document.querySelectorAll(".nav-item");
-  buttons.forEach((btn) => {
+  links.forEach((btn) => {
     btn.addEventListener("click", () => {
-      const tab = btn.getAttribute("data-tab");
-      // Set active nav
-      buttons.forEach((b) => b.classList.toggle("active", b === btn));
-      // Show the right tab
-      document.querySelectorAll(".tab").forEach((section) => {
-        section.classList.toggle(
-          "active",
-          section.id === `tab-${tab}`
-        );
+      const targetId = btn.dataset.target;
+      links.forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      sections.forEach((sec) => {
+        sec.classList.toggle("active", sec.id === targetId);
       });
     });
   });
 }
 
-/*****************************************************
- *  SPORTSDataIO FETCH WRAPPER
- *****************************************************/
-
-async function sportsDataFetch(base, path, params = {}) {
-  const url = new URL(`${base}/${path}`);
-  // API key is passed as query parameter per SportsDataIO docs :contentReference[oaicite:5]{index=5}
-  url.searchParams.set("key", SPORTSDATA_API_KEY);
-  Object.entries(params).forEach(([k, v]) => {
-    url.searchParams.set(k, v);
+// =======================
+// DROPDOWNS
+// =======================
+function setupSeasonDropdowns() {
+  const ids = [
+    "schedule-season-select",
+    "roster-season-select",
+    "stats-season-select",
+    "analytics-season-select"
+  ];
+  ids.forEach((id) => {
+    const select = document.getElementById(id);
+    if (!select) return;
+    API_CONFIG.seasonOptions.forEach((yr) => {
+      const opt = document.createElement("option");
+      opt.value = yr;
+      opt.textContent = yr;
+      if (yr === API_CONFIG.season) opt.selected = true;
+      select.appendChild(opt);
+    });
+    select.addEventListener("change", () => {
+      const season = parseInt(select.value, 10);
+      state.currentSeason = season;
+      loadSeasonData(season);
+    });
   });
+}
 
-  const res = await fetch(url.toString());
+// =======================
+// FILTER INPUTS
+// =======================
+function setupFilters() {
+  const upcomingCheckbox = document.getElementById("schedule-upcoming-only");
+  if (upcomingCheckbox) {
+    upcomingCheckbox.addEventListener("change", () => {
+      renderScheduleTable();
+    });
+  }
+
+  const rosterSearch = document.getElementById("roster-search");
+  const rosterPos = document.getElementById("roster-position-filter");
+  [rosterSearch, rosterPos].forEach((el) => {
+    if (!el) return;
+    el.addEventListener("input", () => {
+      renderRoster();
+    });
+    el.addEventListener("change", () => {
+      renderRoster();
+    });
+  });
+}
+
+// =======================
+// POLL (Fan Hub)
+// =======================
+function setupPoll() {
+  const form = document.getElementById("fan-poll");
+  const resultsDiv = document.getElementById("poll-results");
+  if (!form || !resultsDiv) return;
+
+  const STORAGE_KEY = "gators_poll_scoring_leader";
+
+  function loadResults() {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : { guard: 0, wing: 0, big: 0 };
+  }
+
+  function saveResults(results) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(results));
+  }
+
+  function renderResults() {
+    const results = loadResults();
+    const total = results.guard + results.wing + results.big;
+    if (!total) {
+      resultsDiv.textContent = "No votes yet. Be the first!";
+      return;
+    }
+    const pct = (v) => Math.round((v / total) * 100);
+    resultsDiv.innerHTML = `
+      <p><strong>Results:</strong></p>
+      <ul>
+        <li>Lead Guard: ${results.guard} (${pct(results.guard)}%)</li>
+        <li>Wing Scorer: ${results.wing} (${pct(results.wing)}%)</li>
+        <li>Big Man: ${results.big} (${pct(results.big)}%)</li>
+      </ul>
+      <p style="font-size:0.78rem;color:#6b7280;">Votes are stored locally on this device.</p>
+    `;
+  }
+
+  renderResults();
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const choice = form.querySelector("input[name='poll-choice']:checked");
+    if (!choice) {
+      alert("Please select an option before voting.");
+      return;
+    }
+    const results = loadResults();
+    results[choice.value] = (results[choice.value] || 0) + 1;
+    saveResults(results);
+    renderResults();
+  });
+}
+
+// =======================
+// DATA LOADING
+// =======================
+async function loadSeasonData(season) {
+  const loading = document.getElementById("global-loading");
+  const errorDiv = document.getElementById("global-error");
+  if (loading) loading.classList.remove("hidden");
+  if (errorDiv) errorDiv.classList.add("hidden");
+
+  try {
+    const schedulePromise =
+      state.scheduleBySeason[season]
+        ? Promise.resolve(state.scheduleBySeason[season])
+        : fetchJson(`${API_CONFIG.baseUrlScores}/TeamSchedule/${season}/${API_CONFIG.teamKey}`);
+
+    const statsPromise =
+      state.statsBySeason[season]
+        ? Promise.resolve(state.statsBySeason[season])
+        : fetchJson(
+            `${API_CONFIG.baseUrlStats}/PlayerSeasonStatsByTeam/${season}/${API_CONFIG.teamKey}`
+          );
+
+    const [schedule, stats] = await Promise.all([schedulePromise, statsPromise]);
+
+    state.scheduleBySeason[season] = Array.isArray(schedule) ? schedule : [];
+    state.statsBySeason[season] = Array.isArray(stats) ? stats : [];
+
+    // Render everything
+    renderScheduleTable();
+    renderNextGameAndQuickGlance();
+    renderRoster();
+    renderStats();
+    renderAnalytics();
+    renderTicketsSection();
+  } catch (err) {
+    console.error("Error loading season data:", err);
+    if (errorDiv) {
+      errorDiv.textContent =
+        "Error loading data from SportsDataIO. Open the console for details and check your endpoints/key.";
+      errorDiv.classList.remove("hidden");
+    }
+  } finally {
+    if (loading) loading.classList.add("hidden");
+  }
+}
+
+// Generic fetch helper using API key in header
+async function fetchJson(url) {
+  const res = await fetch(url, {
+    headers: {
+      "Ocp-Apim-Subscription-Key": API_CONFIG.apiKey
+    }
+  });
   if (!res.ok) {
-    console.error("SportsDataIO error", res.status, res.statusText);
-    throw new Error(`SportsDataIO error: ${res.status}`);
+    throw new Error(`HTTP ${res.status} for ${url}`);
   }
   return res.json();
 }
 
-/*****************************************************
- *  STEP 1 – FIND FLORIDA TEAM KEY/ID
- *
- * Endpoint pattern confirmed:
- *   GET v3/cbb/scores/json/teams?key=... :contentReference[oaicite:6]{index=6}
- *****************************************************/
-
-async function detectFloridaTeam() {
-  const teams = await sportsDataFetch(CBB_SCORES_BASE, "teams");
-  // Inspect a couple of entries in the browser console to see structure
-  console.log("Sample CBB team row:", teams[0]);
-
-  // TRY to find Florida by known fields.
-  let florida = teams.find(
-    (t) =>
-      t.School === "Florida" ||
-      t.Name === "Gators" ||
-      t.FullName === "Florida Gators" ||
-      t.SchoolName === "Florida" ||
-      t.City === "Gainesville"
-  );
-
-  // Fallback: manually look for "Florida" in any string property
-  if (!florida) {
-    florida = teams.find((t) => {
-      return Object.values(t).some(
-        (v) => typeof v === "string" && v.toLowerCase().includes("florida gators")
-      );
-    });
-  }
-
-  if (!florida) {
-    console.warn("Could not auto-detect Florida team; check teams JSON structure.");
-    alert(
-      "Could not automatically find Florida in the SportsDataIO Teams feed.\n" +
-        "Open the browser console, inspect the 'teams' array, and manually identify Florida's Key and TeamID."
-    );
-    return;
-  }
-
-  // These property names are based on SportsDataIO’s Team table pattern across leagues. :contentReference[oaicite:7]{index=7}
-  FLORIDA_TEAM_KEY = florida.Key || florida.Team || florida.Abbreviation;
-  FLORIDA_TEAM_ID = florida.TeamID;
-
-  console.log("Detected Florida:", florida);
-  console.log("FLORIDA_TEAM_KEY =", FLORIDA_TEAM_KEY, "FLORIDA_TEAM_ID =", FLORIDA_TEAM_ID);
-}
-
-/*****************************************************
- *  STEP 2 – SCHEDULE + COUNTDOWN
- *
- * Pattern from public examples:
- *   GET v3/cbb/scores/json/TeamSchedule/{season}/{teamKey} :contentReference[oaicite:8]{index=8}
- * Verify this path in your CBB Swagger docs (cbb-v3-scores.json).
- *****************************************************/
-
-let scheduleData = [];
-let countdownInterval = null;
-
-async function loadSchedule(season = DEFAULT_SEASON) {
-  if (!FLORIDA_TEAM_KEY) return;
-
-  const path = `TeamSchedule/${season}/${FLORIDA_TEAM_KEY}`;
-  const games = await sportsDataFetch(CBB_SCORES_BASE, path);
-  scheduleData = games;
-  console.log("Schedule data sample:", games[0]);
-  populateScheduleSeasonSelect(season);
-  renderScheduleTable();
-  updateNextGameAndCountdown();
-  renderTicketsTab();
-}
-
-function populateScheduleSeasonSelect(selectedSeason) {
-  const seasons = [selectedSeason - 1, selectedSeason, selectedSeason + 1];
-  const select = $("#scheduleSeasonSelect");
-  if (!select.options.length) {
-    seasons.forEach((s) => {
-      const opt = document.createElement("option");
-      opt.value = s;
-      opt.textContent = `${s}-${String(s + 1).slice(-2)}`;
-      if (s === selectedSeason) opt.selected = true;
-      select.appendChild(opt);
-    });
-    select.addEventListener("change", () => {
-      const s = Number(select.value);
-      loadSchedule(s).catch(console.error);
-    });
-  }
-}
-
+// =======================
+// SCHEDULE + HERO
+// =======================
 function renderScheduleTable() {
-  const container = $("#scheduleTable");
-  container.innerHTML = "";
+  const season = state.currentSeason;
+  const tbody = document.getElementById("schedule-table-body");
+  if (!tbody) return;
 
-  const view = $("#scheduleViewSelect").value;
-  const now = new Date();
+  const schedule = state.scheduleBySeason[season] || [];
+  const upcomingOnly = document.getElementById("schedule-upcoming-only")?.checked;
 
-  let filtered = scheduleData.slice();
-  filtered.sort(
-    (a, b) => new Date(a.DateTime) - new Date(b.DateTime)
-  );
-
-  if (view === "upcoming") {
-    filtered = filtered.filter((g) => new Date(g.DateTime) > now);
-  } else if (view === "completed") {
-    filtered = filtered.filter((g) => new Date(g.DateTime) <= now);
-  }
-
-  filtered.forEach((game) => {
-    const row = createEl("div", "card-row");
-    const left = createEl("div", "card-row-left");
-    const right = createEl("div");
-
-    const isHome = game.HomeTeam === FLORIDA_TEAM_KEY;
-    const opponent = isHome ? game.AwayTeam : game.HomeTeam;
-    const opponentName = opponent || "TBD";
-
-    const title = createEl(
-      "div",
-      "card-row-title",
-      `${isHome ? "vs" : "@"} ${opponentName}`
-    );
-    const meta = createEl(
-      "div",
-      "card-row-meta",
-      `${formatDateTime(game.DateTime)} • ${game.Stadium || ""}`
-    );
-
-    left.appendChild(title);
-    left.appendChild(meta);
-
-    // Status / result
-    const badge = createEl(
-      "span",
-      "badge " +
-        (game.Status === "Final" || game.IsClosed ? "badge-final" : "badge-upcoming"),
-      game.Status
-    );
-
-    const scoreText =
-      game.Status === "Final" || game.IsClosed
-        ? `${game.AwayTeam} ${game.AwayTeamScore ?? ""} — ${game.HomeTeam} ${
-            game.HomeTeamScore ?? ""
-          }`
-        : "";
-
-    const scoreDiv = createEl("div", "card-row-meta", scoreText);
-    right.appendChild(badge);
-    if (scoreText) right.appendChild(scoreDiv);
-
-    row.appendChild(left);
-    row.appendChild(right);
-    container.appendChild(row);
-  });
-}
-
-// Find very next future game for countdown
-function getNextGame() {
-  const now = new Date();
-  const futureGames = scheduleData.filter(
-    (g) => new Date(g.DateTime) > now
-  );
-  futureGames.sort(
-    (a, b) => new Date(a.DateTime) - new Date(b.DateTime)
-  );
-  return futureGames[0] || null;
-}
-
-function updateNextGameAndCountdown() {
-  const nextGame = getNextGame();
-  const opponentEl = $("#nextGameOpponent");
-  const dateEl = $("#nextGameDate");
-
-  if (!nextGame) {
-    opponentEl.textContent = "No upcoming games";
-    dateEl.textContent = "";
-    clearInterval(countdownInterval);
-    return;
-  }
-
-  const isHome = nextGame.HomeTeam === FLORIDA_TEAM_KEY;
-  const opponent = isHome ? nextGame.AwayTeam : nextGame.HomeTeam;
-
-  opponentEl.textContent = `${isHome ? "vs" : "@"} ${opponent}`;
-  dateEl.textContent = formatDateTime(nextGame.DateTime);
-
-  const target = new Date(nextGame.DateTime).getTime();
-  clearInterval(countdownInterval);
-
-  countdownInterval = setInterval(() => {
-    const now = Date.now();
-    const diff = target - now;
-
-    if (diff <= 0) {
-      clearInterval(countdownInterval);
-      $("#countdownDays").textContent = "0";
-      $("#countdownHours").textContent = "0";
-      $("#countdownMinutes").textContent = "0";
-      $("#countdownSeconds").textContent = "0";
-      return;
-    }
-
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
-    const mins = Math.floor((diff / (1000 * 60)) % 60);
-    const secs = Math.floor((diff / 1000) % 60);
-
-    $("#countdownDays").textContent = days;
-    $("#countdownHours").textContent = hours;
-    $("#countdownMinutes").textContent = mins;
-    $("#countdownSeconds").textContent = secs;
-  }, 1000);
-}
-
-/*****************************************************
- *  STEP 3 – ROSTER (CURRENT + FORMER)
- *
- * SportsDataIO supports “Players” and roster/team profile feeds. :contentReference[oaicite:9]{index=9}
- * A common pattern is:
- *   GET v3/cbb/scores/json/Players
- *   or PlayersByTeam/{teamId}
- * Check the CBB Swagger docs for exact path names.
- *****************************************************/
-
-let allPlayers = [];
-
-async function loadPlayers() {
-  // START SIMPLE: fetch all players, filter to Florida.
-  // This endpoint path is inferred from NFL/NBA patterns; verify it in the docs.
-  const players = await sportsDataFetch(CBB_SCORES_BASE, "Players");
-  allPlayers = players;
-  console.log("Sample player row:", players[0]);
-
-  populateRosterSeasonSelect(DEFAULT_SEASON);
-  renderRosterTables(DEFAULT_SEASON);
-  initFanHubPoll();
-}
-
-function populateRosterSeasonSelect(selectedSeason) {
-  const select = $("#rosterSeasonSelect");
-  if (select.options.length) return;
-
-  const seasons = [selectedSeason - 1, selectedSeason, selectedSeason + 1];
-  seasons.forEach((s) => {
-    const opt = document.createElement("option");
-    opt.value = s;
-    opt.textContent = `${s}-${String(s + 1).slice(-2)}`;
-    if (s === selectedSeason) opt.selected = true;
-    select.appendChild(opt);
-  });
-
-  select.addEventListener("change", () => {
-    const s = Number(select.value);
-    renderRosterTables(s);
-  });
-
-  $("#rosterPositionFilter").addEventListener("change", () => {
-    renderRosterTables(Number(select.value));
-  });
-}
-
-function filterFloridaPlayersForSeason(season) {
-  if (!FLORIDA_TEAM_KEY && !FLORIDA_TEAM_ID) return [];
-
-  return allPlayers.filter((p) => {
-    const teamMatch =
-      p.Team === FLORIDA_TEAM_KEY ||
-      p.TeamKey === FLORIDA_TEAM_KEY ||
-      p.TeamID === FLORIDA_TEAM_ID;
-    // Many feeds include a Season or LastSeason field – inspect your sample row and adjust.
-    const seasonMatch =
-      p.Season === season ||
-      p.LastSeason === season ||
-      typeof p.Season === "undefined";
-
-    return teamMatch && seasonMatch;
-  });
-}
-
-function renderRosterTables(season) {
-  const currentBody = $("#currentRosterTable tbody");
-  const formerBody = $("#formerPlayersTable tbody");
-  currentBody.innerHTML = "";
-  formerBody.innerHTML = "";
-
-  const positionFilter = $("#rosterPositionFilter").value;
-  const players = filterFloridaPlayersForSeason(season);
-
-  players.forEach((p) => {
-    const tr = document.createElement("tr");
-    const jersey = p.Jersey || p.Number || "";
-    const fullName = [p.FirstName, p.LastName].filter(Boolean).join(" ");
-    const pos = p.Position || "";
-    const height = p.Height || "";
-    const weight = p.Weight || "";
-    const classYear = p.Class || p.Experience || "";
-    const hometown = p.Hometown || "";
-
-    if (positionFilter !== "all" && pos !== positionFilter) {
-      return;
-    }
-
-    tr.innerHTML = `
-      <td>${jersey}</td>
-      <td>${fullName}</td>
-      <td>${pos}</td>
-      <td>${height}</td>
-      <td>${weight}</td>
-      <td>${classYear}</td>
-      <td>${hometown}</td>
-    `;
-    currentBody.appendChild(tr);
-  });
-
-  // Very simple "former players" list:
-  // players who have Florida in history but whose Season is < selectedSeason.
-  const former = allPlayers.filter((p) => {
-    const hasFlorida =
-      p.Team === FLORIDA_TEAM_KEY ||
-      p.TeamKey === FLORIDA_TEAM_KEY ||
-      p.PastTeams?.includes?.(FLORIDA_TEAM_KEY);
-    const lastSeason = p.LastSeason || p.Season;
-    return hasFlorida && lastSeason && lastSeason < season;
-  });
-
-  former.slice(0, 50).forEach((p) => {
-    const tr = document.createElement("tr");
-    const fullName = [p.FirstName, p.LastName].filter(Boolean).join(" ");
-    const pos = p.Position || "";
-    const years = p.CollegeYears || `${p.FirstSeason || "?"}-${p.LastSeason || "?"}`;
-
-    tr.innerHTML = `
-      <td>${fullName}</td>
-      <td>${years}</td>
-      <td>${pos}</td>
-    `;
-    formerBody.appendChild(tr);
-  });
-}
-
-/*****************************************************
- *  STEP 4 – STATS TAB
- *
- * SportsDataIO has Player Season Stats feeds:
- *   e.g. PlayerSeasonStats, PlayerSeasonStatsByTeam/{season}/{team}
- *      (pattern from other leagues + CBB data dictionary) :contentReference[oaicite:10]{index=10}
- * Confirm the exact endpoint in your docs!
- *****************************************************/
-
-let seasonStats = [];
-
-async function loadStats(season = DEFAULT_SEASON) {
-  if (!FLORIDA_TEAM_KEY) return;
-
-  // Guessing endpoint pattern – verify in SportsDataIO docs.
-  // Common pattern: PlayerSeasonStatsByTeam/{season}/{team}
-  const path = `PlayerSeasonStatsByTeam/${season}/${FLORIDA_TEAM_KEY}`;
-
-  try {
-    const stats = await sportsDataFetch(CBB_STATS_BASE, path);
-    seasonStats = stats;
-    console.log("Sample season stats row:", stats[0]);
-    populateStatsSeasonSelect(season);
-    renderStatsTable(season);
-    computeAnalyticsFromStats();
-  } catch (err) {
-    console.warn(
-      "Stats endpoint path might be different. Check CBB stats docs for the correct URL.",
-      err
-    );
-  }
-}
-
-function populateStatsSeasonSelect(selectedSeason) {
-  const select = $("#statsSeasonSelect");
-  if (select.options.length) return;
-
-  const seasons = [selectedSeason - 1, selectedSeason, selectedSeason + 1];
-  seasons.forEach((s) => {
-    const opt = document.createElement("option");
-    opt.value = s;
-    opt.textContent = `${s}-${String(s + 1).slice(-2)}`;
-    if (s === selectedSeason) opt.selected = true;
-    select.appendChild(opt);
-  });
-
-  select.addEventListener("change", () => {
-    const s = Number(select.value);
-    loadStats(s).catch(console.error);
-  });
-}
-
-function renderStatsTable(season) {
-  const tbody = $("#statsTable tbody");
   tbody.innerHTML = "";
 
-  seasonStats.forEach((row) => {
-    // Field names are based on SportsDataIO’s typical basketball schema. :contentReference[oaicite:11]{index=11}
-    const name = [row.FirstName, row.LastName].filter(Boolean).join(" ");
-    const gp = row.Games || row.GamesPlayed || 0;
-    const min = row.Minutes || row.MinutesPerGame || 0;
-    const pts = row.PointsPerGame ?? (row.Points && gp ? row.Points / gp : 0);
-    const reb = row.ReboundsPerGame ?? (row.Rebounds && gp ? row.Rebounds / gp : 0);
-    const ast = row.AssistsPerGame ?? (row.Assists && gp ? row.Assists / gp : 0);
-    const fgPct = row.FieldGoalsPercentage ?? row.FieldGoalPercentage ?? 0;
-    const threePct = row.ThreePointersPercentage ?? row.ThreePointPercentage ?? 0;
+  const now = new Date();
+  const rows = schedule
+    .filter((game) => {
+      if (!upcomingOnly) return true;
+      const dt = parseSportsDataDate(game.Day || game.DateTime);
+      return dt && dt >= now;
+    })
+    .sort((a, b) => {
+      const da = parseSportsDataDate(a.Day || a.DateTime);
+      const db = parseSportsDataDate(b.Day || b.DateTime);
+      return (da?.getTime() || 0) - (db?.getTime() || 0);
+    });
 
+  if (!rows.length) {
     const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 5;
+    td.className = "placeholder";
+    td.textContent = "No games found for this season.";
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    return;
+  }
+
+  rows.forEach((game) => {
+    const tr = document.createElement("tr");
+    const date = parseSportsDataDate(game.Day || game.DateTime);
+    const opponentName = getOpponentName(game);
+    const location = game.HomeTeam === API_CONFIG.teamKey ? "Home" : "Away";
+
+    const resultString = buildResultString(game);
+    const recordString = game.HomeTeam === API_CONFIG.teamKey
+      ? `${game.HomeTeamWins || ""}-${game.HomeTeamLosses || ""}`
+      : `${game.AwayTeamWins || ""}-${game.AwayTeamLosses || ""}`;
+
     tr.innerHTML = `
-      <td>${name}</td>
-      <td>${gp}</td>
-      <td>${min.toFixed ? min.toFixed(1) : min}</td>
-      <td>${pts.toFixed ? pts.toFixed(1) : pts}</td>
-      <td>${reb.toFixed ? reb.toFixed(1) : reb}</td>
-      <td>${ast.toFixed ? ast.toFixed(1) : ast}</td>
-      <td>${fgPct ? (fgPct * 100).toFixed(1) + "%" : "-"}</td>
-      <td>${threePct ? (threePct * 100).toFixed(1) + "%" : "-"}</td>
+      <td>${date ? formatDate(date) : "-"}</td>
+      <td>${opponentName}</td>
+      <td>${location}</td>
+      <td>${resultString}</td>
+      <td>${recordString}</td>
     `;
+    tr.addEventListener("click", () => showGameDetail(game));
     tbody.appendChild(tr);
   });
 }
 
-/*****************************************************
- *  STEP 5 – ANALYTICS (TEMPO, RATINGS, SPLITS)
- *
- * For a deeper version, you’d pull box scores and compute advanced stats from
- * team/game tables. The CBB data dict shows BoxScore + TeamGame + PlayerGame. :contentReference[oaicite:12]{index=12}
- * Here we just do a simple approximate version using season stats & schedule.
- *****************************************************/
-
-function computeAnalyticsFromStats() {
-  if (!seasonStats.length) return;
-
-  // Basic tempo & ratings using team totals if available; fallback to per-player aggregation.
-  // For full accuracy you’d use TeamGame stats across all games.
-  const teamRow = seasonStats.find((r) => r.Type === "TeamTotal") || null;
-
-  let totalPoints = 0;
-  let totalOppPoints = 0;
-  let totalPossessions = 0;
-  let games = 0;
-
-  if (teamRow) {
-    games = teamRow.Games || teamRow.GamesPlayed || 0;
-    totalPoints = teamRow.Points || 0;
-    totalOppPoints = teamRow.OpponentPoints || 0;
-
-    // Possessions estimate: FGA + 0.44*FTA - ORB + TO (simplified)
-    const fga = teamRow.FieldGoalsAttempted || 0;
-    const fta = teamRow.FreeThrowsAttempted || 0;
-    const orb = teamRow.OffensiveRebounds || 0;
-    const to = teamRow.Turnovers || 0;
-    totalPossessions = fga + 0.44 * fta - orb + to;
-  } else {
-    // Very rough fallback: sum players
-    seasonStats.forEach((p) => {
-      games = Math.max(games, p.Games || p.GamesPlayed || 0);
-      totalPoints += p.Points || 0;
-    });
-    totalPossessions = games * 70; // assume 70 poss/game if we don’t have the fields
-  }
-
-  if (!games || !totalPossessions) return;
-
-  const tempoPer40 = (totalPossessions / games) * (40 / 40); // already per game
-  const offRtg = (totalPoints / totalPossessions) * 100;
-  const defRtg = (totalOppPoints / totalPossessions) * 100 || null;
-
-  $("#tempoMetric").textContent = tempoPer40.toFixed(1);
-  $("#offRtgMetric").textContent = offRtg.toFixed(1);
-  $("#defRtgMetric").textContent = defRtg ? defRtg.toFixed(1) : "--";
-
-  // Simple home/away from schedule
-  const now = new Date();
-  const completedGames = scheduleData.filter(
-    (g) => new Date(g.DateTime) <= now && (g.Status === "Final" || g.IsClosed)
-  );
-
-  let homeGames = 0,
-    awayGames = 0,
-    homeWins = 0,
-    awayWins = 0,
-    homePts = 0,
-    awayPts = 0;
-
-  completedGames.forEach((g) => {
-    const isHome = g.HomeTeam === FLORIDA_TEAM_KEY;
-    const floridaScore = isHome ? g.HomeTeamScore : g.AwayTeamScore;
-    const oppScore = isHome ? g.AwayTeamScore : g.HomeTeamScore;
-    if (typeof floridaScore !== "number" || typeof oppScore !== "number") return;
-
-    if (isHome) {
-      homeGames++;
-      homePts += floridaScore;
-      if (floridaScore > oppScore) homeWins++;
-    } else {
-      awayGames++;
-      awayPts += floridaScore;
-      if (floridaScore > oppScore) awayWins++;
-    }
-  });
-
-  const homePPG = homeGames ? homePts / homeGames : 0;
-  const awayPPG = awayGames ? awayPts / awayGames : 0;
-
-  $("#homeAwayMetric").textContent = `Home: ${homeWins}-${homeGames - homeWins} (${homePPG.toFixed(
-    1
-  )} PPG) • Away: ${awayWins}-${awayGames - awayWins} (${awayPPG.toFixed(1)} PPG)`;
-
-  // Game summaries
-  const summariesContainer = $("#gameSummaries");
-  summariesContainer.innerHTML = "";
-  const last10 = completedGames
-    .slice()
-    .sort((a, b) => new Date(b.DateTime) - new Date(a.DateTime))
-    .slice(0, 10);
-
-  last10.forEach((g) => {
-    const isHome = g.HomeTeam === FLORIDA_TEAM_KEY;
-    const floridaScore = isHome ? g.HomeTeamScore : g.AwayTeamScore;
-    const oppScore = isHome ? g.AwayTeamScore : g.HomeTeamScore;
-    const opp = isHome ? g.AwayTeam : g.HomeTeam;
-
-    const margin = floridaScore - oppScore;
-    const resultText = margin > 0 ? `W ${floridaScore}-${oppScore}` : `L ${floridaScore}-${oppScore}`;
-
-    const row = createEl("div", "card-row");
-    const left = createEl("div", "card-row-left");
-    left.appendChild(
-      createEl(
-        "div",
-        "card-row-title",
-        `${formatDate(g.DateTime)} • ${isHome ? "vs" : "@"} ${opp}`
-      )
-    );
-    left.appendChild(createEl("div", "card-row-meta", resultText));
-
-    row.appendChild(left);
-    summariesContainer.appendChild(row);
-  });
+function getOpponentName(game) {
+  const ourKey = API_CONFIG.teamKey;
+  const isHome = game.HomeTeam === ourKey;
+  const oppKey = isHome ? game.AwayTeam : game.HomeTeam;
+  // Many schedules include AwayTeam / HomeTeam plus detail fields like AwayTeamName, etc.
+  const name =
+    (isHome ? game.AwayTeamName : game.HomeTeamName) ||
+    oppKey ||
+    "Opponent TBA";
+  return name;
 }
 
-/*****************************************************
- *  STEP 6 – TICKETS TAB
- *
- * SportsDataIO focuses on odds and stats; ticket prices usually come from
- * separate APIs (VividSeats, SeatGeek, Ticketmaster, etc.). :contentReference[oaicite:13]{index=13}
- * Here we:
- *   – Show each upcoming game
- *   – Provide a button to the official UF tickets site / ESPN tickets
- *   – Placeholder for “Lowest” and “Avg” price (you can manually fill or later
- *     integrate a ticket API).
- *****************************************************/
+function buildResultString(game) {
+  if (game.Status === "Scheduled" || game.Status === "InProgress") {
+    return game.Status || "Scheduled";
+  }
+  const ourKey = API_CONFIG.teamKey;
+  const isHome = game.HomeTeam === ourKey;
+  const ourScore = isHome ? game.HomeTeamScore : game.AwayTeamScore;
+  const oppScore = isHome ? game.AwayTeamScore : game.HomeTeamScore;
+  if (ourScore == null || oppScore == null) return "Final (score unavailable)";
+  const result = ourScore > oppScore ? "W" : ourScore < oppScore ? "L" : "T";
+  return `${result} ${ourScore}-${oppScore}`;
+}
 
-function renderTicketsTab() {
-  const container = $("#ticketsList");
-  container.innerHTML = "";
+function showGameDetail(game) {
+  const box = document.getElementById("game-detail");
+  const content = document.getElementById("game-detail-content");
+  if (!box || !content) return;
 
+  const date = parseSportsDataDate(game.Day || game.DateTime);
+  const opponentName = getOpponentName(game);
+  const location = game.HomeTeam === API_CONFIG.teamKey ? "Home" : "Away";
+  const result = buildResultString(game);
+
+  content.innerHTML = `
+    <p><strong>${opponentName}</strong> (${location})</p>
+    <p>Date/Time: ${date ? date.toLocaleString() : "TBA"}</p>
+    <p>Status/Result: ${result}</p>
+    <p>Attendance: ${game.Attendance ?? "N/A"}</p>
+    <p>TV: ${game.Channel || "TBA"}</p>
+  `;
+  box.classList.remove("hidden");
+}
+
+// Hero / Quick glance / Countdown
+function renderNextGameAndQuickGlance() {
+  const season = state.currentSeason;
+  const schedule = state.scheduleBySeason[season] || [];
+  const nextGame = findNextGame(schedule);
+  const opponentEl = document.getElementById("next-game-opponent");
+  const metaEl = document.getElementById("next-game-meta");
+
+  if (!opponentEl || !metaEl) return;
+
+  if (!nextGame) {
+    opponentEl.textContent = "No upcoming games.";
+    metaEl.textContent = "";
+    clearCountdown();
+  } else {
+    const date = parseSportsDataDate(nextGame.Day || nextGame.DateTime);
+    opponentEl.textContent = getOpponentName(nextGame);
+    metaEl.textContent = date
+      ? `${date.toLocaleString()} • ${
+          nextGame.HomeTeam === API_CONFIG.teamKey ? "Home" : "Away"
+        }`
+      : `${nextGame.HomeTeam === API_CONFIG.teamKey ? "Home" : "Away"}`;
+
+    startCountdown(date);
+  }
+
+  // Quick glance from stats/schedule
+  renderQuickGlance(schedule);
+}
+
+function findNextGame(schedule) {
   const now = new Date();
-  const upcoming = scheduleData
-    .filter((g) => new Date(g.DateTime) > now)
-    .sort((a, b) => new Date(a.DateTime) - new Date(b.DateTime));
+  const upcoming = schedule
+    .map((g) => ({ game: g, dt: parseSportsDataDate(g.Day || g.DateTime) }))
+    .filter((x) => x.dt && x.dt >= now)
+    .sort((a, b) => a.dt - b.dt);
+  return upcoming.length ? upcoming[0].game : null;
+}
 
-  if (!upcoming.length) {
-    const msg = createEl("p", "small-text", "No upcoming games found.");
-    container.appendChild(msg);
+function startCountdown(targetDate) {
+  const timerEl = document.getElementById("countdown-timer");
+  clearCountdown();
+  if (!timerEl || !targetDate) return;
+
+  function update() {
+    const now = new Date();
+    const diff = targetDate - now;
+    if (diff <= 0) {
+      timerEl.textContent = "00:00:00:00";
+      clearCountdown();
+      return;
+    }
+    const days = Math.floor(diff / (24 * 60 * 60 * 1000));
+    const hours = Math.floor((diff / (60 * 60 * 1000)) % 24);
+    const mins = Math.floor((diff / (60 * 1000)) % 60);
+    const secs = Math.floor((diff / 1000) % 60);
+    timerEl.textContent = `${pad2(days)}d ${pad2(hours)}h ${pad2(mins)}m ${pad2(secs)}s`;
+  }
+
+  update();
+  state.countdownInterval = setInterval(update, 1000);
+}
+
+function clearCountdown() {
+  if (state.countdownInterval) {
+    clearInterval(state.countdownInterval);
+    state.countdownInterval = null;
+  }
+}
+
+function renderQuickGlance(schedule) {
+  const stats = state.statsBySeason[state.currentSeason] || [];
+  const recordEl = document.getElementById("quick-record");
+  const ppgEl = document.getElementById("quick-ppg");
+  const rpgEl = document.getElementById("quick-rpg");
+  const last5El = document.getElementById("quick-last5");
+
+  // Record from schedule
+  let wins = 0;
+  let losses = 0;
+  schedule.forEach((g) => {
+    if (g.Status !== "Final") return;
+    const isHome = g.HomeTeam === API_CONFIG.teamKey;
+    const ourScore = isHome ? g.HomeTeamScore : g.AwayTeamScore;
+    const oppScore = isHome ? g.AwayTeamScore : g.HomeTeamScore;
+    if (ourScore == null || oppScore == null) return;
+    if (ourScore > oppScore) wins++;
+    else if (ourScore < oppScore) losses++;
+  });
+  if (recordEl) {
+    recordEl.textContent = wins + losses > 0 ? `${wins}-${losses}` : "–";
+  }
+
+  // PPG/RPG from players
+  let totalPoints = 0;
+  let totalReb = 0;
+  let totalGames = 0;
+  stats.forEach((p) => {
+    const games = p.Games || p.GamesPlayed || 0;
+    totalPoints += p.Points || 0;
+    totalReb += p.Rebounds || 0;
+    totalGames = Math.max(totalGames, games);
+  });
+  if (ppgEl) {
+    const teamPPG = totalGames ? (totalPoints / totalGames).toFixed(1) : "–";
+    ppgEl.textContent = teamPPG;
+  }
+  if (rpgEl) {
+    const teamRPG = totalGames ? (totalReb / totalGames).toFixed(1) : "–";
+    rpgEl.textContent = teamRPG;
+  }
+
+  // Last 5 W/L
+  const finals = schedule
+    .filter((g) => g.Status === "Final")
+    .map((g) => {
+      const isHome = g.HomeTeam === API_CONFIG.teamKey;
+      const ourScore = isHome ? g.HomeTeamScore : g.AwayTeamScore;
+      const oppScore = isHome ? g.AwayTeamScore : g.HomeTeamScore;
+      if (ourScore == null || oppScore == null) return null;
+      return ourScore > oppScore ? "W" : ourScore < oppScore ? "L" : "T";
+    })
+    .filter(Boolean)
+    .slice(-5);
+
+  if (last5El) {
+    last5El.textContent = finals.length ? finals.join(" ") : "–";
+  }
+}
+
+// =======================
+// ROSTER
+// =======================
+function renderRoster() {
+  const season = state.currentSeason;
+  const stats = state.statsBySeason[season] || [];
+  const currentContainer = document.getElementById("roster-current");
+  const formerContainer = document.getElementById("roster-former");
+  if (!currentContainer || !formerContainer) return;
+
+  const searchValue = (document.getElementById("roster-search")?.value || "")
+    .trim()
+    .toLowerCase();
+  const posFilter = document.getElementById("roster-position-filter")?.value || "all";
+
+  // Current season players from stats
+  const players = dedupePlayers(stats);
+
+  const filtered = players.filter((p) => {
+    if (searchValue && !p.Name.toLowerCase().includes(searchValue)) return false;
+    if (posFilter !== "all" && p.Position && p.Position !== posFilter) return false;
+    return true;
+  });
+
+  currentContainer.innerHTML = "";
+  if (!filtered.length) {
+    currentContainer.innerHTML =
+      '<p class="placeholder">No players match your filters yet.</p>';
+  } else {
+    filtered.forEach((p) => {
+      const card = document.createElement("div");
+      card.className = "roster-card";
+      card.innerHTML = `
+        <h4>${p.Jersey ? "#" + p.Jersey + " " : ""}${p.Name}</h4>
+        <div class="roster-meta">
+          <div>${p.Position || "Pos TBA"} • ${p.Class || ""}</div>
+          <div>${p.Height || ""} ${p.Weight ? "• " + p.Weight + " lbs" : ""}</div>
+        </div>
+      `;
+      currentContainer.appendChild(card);
+    });
+  }
+
+  // Former players: union of all selected past seasons – for now just use other seasons
+  const former = new Map();
+  API_CONFIG.seasonOptions.forEach((yr) => {
+    if (yr === season) return;
+    const s = state.statsBySeason[yr] || [];
+    dedupePlayers(s).forEach((p) => {
+      const key = p.PlayerID || p.Name;
+      if (!former.has(key)) former.set(key, { ...p, season: yr });
+    });
+  });
+
+  formerContainer.innerHTML = "";
+  if (!former.size) {
+    formerContainer.innerHTML =
+      '<p class="placeholder">Load a previous season to populate former players.</p>';
+  } else {
+    Array.from(former.values())
+      .sort((a, b) => a.season - b.season)
+      .forEach((p) => {
+        const card = document.createElement("div");
+        card.className = "roster-card";
+        card.innerHTML = `
+          <h4>${p.Name}</h4>
+          <div class="roster-meta">
+            <div>Season: ${p.season}</div>
+            <div>${p.Position || "Pos TBA"}${p.Jersey ? " • #" + p.Jersey : ""}</div>
+          </div>
+        `;
+        formerContainer.appendChild(card);
+      });
+  }
+}
+
+function dedupePlayers(statsArr) {
+  const map = new Map();
+  statsArr.forEach((p) => {
+    const key = p.PlayerID || p.Name;
+    if (!key) return;
+    if (!map.has(key)) {
+      map.set(key, {
+        PlayerID: p.PlayerID,
+        Name: p.Name || `${p.FirstName || ""} ${p.LastName || ""}`.trim(),
+        Position: p.Position,
+        Jersey: p.Jersey,
+        Class: p.Class,
+        Height: p.Height,
+        Weight: p.Weight
+      });
+    }
+  });
+  return Array.from(map.values());
+}
+
+// =======================
+// STATS
+// =======================
+function renderStats() {
+  const season = state.currentSeason;
+  const stats = state.statsBySeason[season] || [];
+  const tbody = document.getElementById("stats-table-body");
+  const leadersDiv = document.getElementById("stats-leaders");
+  const propsList = document.getElementById("props-ideas");
+  if (!tbody || !leadersDiv || !propsList) return;
+
+  tbody.innerHTML = "";
+
+  if (!stats.length) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 7;
+    td.className = "placeholder";
+    td.textContent =
+      "No stats yet. Check your Stats endpoint and make sure the season is correct.";
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    leadersDiv.textContent = "";
+    propsList.innerHTML = "";
     return;
   }
 
-  upcoming.forEach((g) => {
-    const row = createEl("div", "card-row");
-    const left = createEl("div", "card-row-left");
-    const isHome = g.HomeTeam === FLORIDA_TEAM_KEY;
-    const opponent = isHome ? g.AwayTeam : g.HomeTeam;
+  const rows = stats.slice().sort((a, b) => {
+    const apgA = (a.Points || 0) / (a.Games || a.GamesPlayed || 1);
+    const apgB = (b.Points || 0) / (b.Games || b.GamesPlayed || 1);
+    return apgB - apgA;
+  });
 
-    left.appendChild(
-      createEl(
-        "div",
-        "card-row-title",
-        `${formatDateTime(g.DateTime)} • ${isHome ? "vs" : "@"} ${opponent}`
-      )
+  rows.forEach((p) => {
+    const games = p.Games || p.GamesPlayed || 0;
+    const ppg = games ? (p.Points || 0) / games : 0;
+    const rpg = games ? (p.Rebounds || 0) / games : 0;
+    const apg = games ? (p.Assists || 0) / games : 0;
+
+    const threePct = p.ThreePointersPercentage ?? p.ThreePointPercentage ?? null;
+    const ftPct = p.FreeThrowsPercentage ?? p.FreeThrowPercentage ?? null;
+
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${p.Name || `${p.FirstName || ""} ${p.LastName || ""}`.trim()}</td>
+      <td>${games}</td>
+      <td>${ppg.toFixed(1)}</td>
+      <td>${rpg.toFixed(1)}</td>
+      <td>${apg.toFixed(1)}</td>
+      <td>${formatPct(threePct)}</td>
+      <td>${formatPct(ftPct)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  // Leaders
+  const leaderBy = (getVal) =>
+    rows.reduce(
+      (best, p) => {
+        const games = p.Games || p.GamesPlayed || 0;
+        if (!games) return best;
+        const val = getVal(p, games);
+        return val > best.value ? { player: p, value: val } : best;
+      },
+      { player: null, value: -Infinity }
     );
-    left.appendChild(
-      createEl(
-        "div",
-        "card-row-meta",
-        g.Stadium ? g.Stadium : isHome ? "Home – O'Connell Center" : "Away"
-      )
-    );
 
-    const right = createEl("div");
-    const prices = createEl(
-      "div",
-      "card-row-meta",
-      "Lowest: $— • Avg: $— (connect a ticket API later)"
-    );
+  const ptsLeader = leaderBy((p, g) => (p.Points || 0) / g);
+  const rebLeader = leaderBy((p, g) => (p.Rebounds || 0) / g);
+  const astLeader = leaderBy((p, g) => (p.Assists || 0) / g);
 
-    // Link to official Gators tickets landing page :contentReference[oaicite:14]{index=14}
-    const link = document.createElement("a");
-    link.href = "https://floridagators.com/sports/mens-basketball?path=basketball-men";
-    link.target = "_blank";
-    link.rel = "noopener";
-    link.className = "btn-secondary";
-    link.textContent = "Tickets";
+  leadersDiv.innerHTML = "";
+  [ ["PPG", ptsLeader], ["RPG", rebLeader], ["APG", astLeader] ].forEach(
+    ([label, obj]) => {
+      if (!obj.player) return;
+      const el = document.createElement("div");
+      el.className = "leader";
+      el.innerHTML = `
+        <span>${label}: ${obj.player.Name}</span>
+        <strong>${obj.value.toFixed(1)}</strong>
+      `;
+      leadersDiv.appendChild(el);
+    }
+  );
 
-    right.appendChild(prices);
-    right.appendChild(link);
-
-    row.appendChild(left);
-    row.appendChild(right);
-    container.appendChild(row);
+  // Simple props ideas (for fun, not gambling)
+  propsList.innerHTML = "";
+  rows.slice(0, 5).forEach((p) => {
+    const games = p.Games || p.GamesPlayed || 0;
+    if (!games) return;
+    const ppg = (p.Points || 0) / games;
+    const propLine = Math.round(ppg - 0.5);
+    const li = document.createElement("li");
+    li.textContent = `${p.Name}: Over/Under ${propLine}.5 points`;
+    propsList.appendChild(li);
   });
 }
 
-/*****************************************************
- *  STEP 7 – FAN HUB: POLL + LOCAL NOTES
- *****************************************************/
+// =======================
+// ANALYTICS
+// =======================
+function renderAnalytics() {
+  const season = state.currentSeason;
+  const schedule = state.scheduleBySeason[season] || [];
 
-function initFanHubPoll() {
-  const pollContainer = $("#pollOptions");
-  const pollResults = $("#pollResults");
+  const recordList = document.getElementById("analytics-record-split");
+  const scoringList = document.getElementById("analytics-scoring");
+  const last5List = document.getElementById("analytics-last5");
+  if (!recordList || !scoringList || !last5List) return;
 
-  if (!allPlayers.length || !FLORIDA_TEAM_KEY) return;
+  const finals = schedule.filter((g) => g.Status === "Final");
 
-  const currentSeasonPlayers = filterFloridaPlayersForSeason(DEFAULT_SEASON);
+  // Record splits
+  let homeW = 0, homeL = 0, awayW = 0, awayL = 0;
+  let totalPts = 0, totalAllowed = 0, totalGames = 0;
+  const gamesSorted = finals
+    .map((g) => ({ g, dt: parseSportsDataDate(g.Day || g.DateTime) }))
+    .sort((a, b) => (a.dt?.getTime() || 0) - (b.dt?.getTime() || 0));
 
-  pollContainer.innerHTML = "";
-  currentSeasonPlayers.slice(0, 8).forEach((p, idx) => {
-    const fullName = [p.FirstName, p.LastName].filter(Boolean).join(" ");
-    const id = `poll-player-${idx}`;
-    const wrapper = createEl("div");
-    const input = document.createElement("input");
-    input.type = "radio";
-    input.name = "mvpPoll";
-    input.id = id;
-    input.value = fullName;
-
-    const label = document.createElement("label");
-    label.setAttribute("for", id);
-    label.textContent = fullName;
-
-    wrapper.appendChild(input);
-    wrapper.appendChild(label);
-    pollContainer.appendChild(wrapper);
+  gamesSorted.forEach(({ g }) => {
+    const isHome = g.HomeTeam === API_CONFIG.teamKey;
+    const ourScore = isHome ? g.HomeTeamScore : g.AwayTeamScore;
+    const oppScore = isHome ? g.AwayTeamScore : g.HomeTeamScore;
+    if (ourScore == null || oppScore == null) return;
+    if (isHome) {
+      if (ourScore > oppScore) homeW++;
+      else if (ourScore < oppScore) homeL++;
+    } else {
+      if (ourScore > oppScore) awayW++;
+      else if (ourScore < oppScore) awayL++;
+    }
+    totalPts += ourScore;
+    totalAllowed += oppScore;
+    totalGames++;
   });
 
-  const stored = localStorage.getItem("gators_mvp_vote");
-  if (stored) {
-    pollResults.textContent = `You voted for: ${stored}`;
-  }
+  recordList.innerHTML = `
+    <li>Home: ${homeW}-${homeL}</li>
+    <li>Away: ${awayW}-${awayL}</li>
+    <li>Total: ${homeW + awayW}-${homeL + awayL}</li>
+  `;
 
-  $("#pollForm").addEventListener("submit", (e) => {
-    e.preventDefault();
-    const selected = document.querySelector('input[name="mvpPoll"]:checked');
-    if (!selected) return;
-    localStorage.setItem("gators_mvp_vote", selected.value);
-    pollResults.textContent = `You voted for: ${selected.value}`;
-  });
+  const avgFor = totalGames ? totalPts / totalGames : 0;
+  const avgAgainst = totalGames ? totalAllowed / totalGames : 0;
+  const margin = avgFor - avgAgainst;
 
-  // Fan notes
-  const notesKey = "gators_fan_notes";
-  const notesInput = $("#fanNotesInput");
-  const notesSaved = $("#fanNotesSaved");
-  const saved = localStorage.getItem(notesKey);
-  if (saved) {
-    notesInput.value = saved;
-    notesSaved.textContent = "Notes loaded from this browser.";
-  }
+  scoringList.innerHTML = `
+    <li>Offensive PPG (approx): ${avgFor.toFixed(1)}</li>
+    <li>Defensive PPG (approx): ${avgAgainst.toFixed(1)}</li>
+    <li>Average Margin: ${margin >= 0 ? "+" : ""}${margin.toFixed(1)}</li>
+  `;
 
-  $("#saveFanNotesBtn").addEventListener("click", () => {
-    localStorage.setItem(notesKey, notesInput.value);
-    notesSaved.textContent = "Notes saved locally in this browser.";
+  // Last 5
+  last5List.innerHTML = "";
+  gamesSorted.slice(-5).forEach(({ g }) => {
+    const dt = parseSportsDataDate(g.Day || g.DateTime);
+    const isHome = g.HomeTeam === API_CONFIG.teamKey;
+    const ourScore = isHome ? g.HomeTeamScore : g.AwayTeamScore;
+    const oppScore = isHome ? g.AwayTeamScore : g.HomeTeamScore;
+    if (ourScore == null || oppScore == null) return;
+    const result = ourScore > oppScore ? "W" : ourScore < oppScore ? "L" : "T";
+    const marginGame = ourScore - oppScore;
+    const li = document.createElement("li");
+    li.textContent = `${dt ? formatDate(dt) : ""} vs ${getOpponentName(g)}: ${result} ${
+      ourScore
+    }-${oppScore} (margin ${marginGame >= 0 ? "+" : ""}${marginGame})`;
+    last5List.appendChild(li);
   });
 }
 
-/*****************************************************
- *  INITIALIZATION
- *****************************************************/
+// =======================
+// TICKETS (static price placeholders)
+// =======================
+function renderTicketsSection() {
+  const season = state.currentSeason;
+  const schedule = state.scheduleBySeason[season] || [];
+  const grid = document.getElementById("tickets-grid");
+  if (!grid) return;
 
-async function init() {
-  initTabs();
+  const homeUpcoming = schedule
+    .filter((g) => g.HomeTeam === API_CONFIG.teamKey)
+    .map((g) => ({ g, dt: parseSportsDataDate(g.Day || g.DateTime) }))
+    .filter((x) => x.dt && x.dt >= new Date())
+    .sort((a, b) => a.dt - b.dt)
+    .slice(0, 6);
 
-  try {
-    await detectFloridaTeam();        // Finds FLORIDA_TEAM_KEY + FLORIDA_TEAM_ID
-    await loadSchedule(DEFAULT_SEASON);
-    await loadPlayers();
-    await loadStats(DEFAULT_SEASON);
-  } catch (err) {
-    console.error(err);
-    alert(
-      "Something went wrong loading SportsDataIO data. " +
-        "Open DevTools (F12), check the Console tab, and see the error message."
-    );
+  grid.innerHTML = "";
+
+  if (!homeUpcoming.length) {
+    grid.innerHTML = '<p class="placeholder">No upcoming home games.</p>';
+    return;
   }
+
+  homeUpcoming.forEach(({ g, dt }) => {
+    const card = document.createElement("div");
+    card.className = "ticket-card";
+    const opp = getOpponentName(g);
+    card.innerHTML = `
+      <h4>${opp}</h4>
+      <div class="ticket-meta">
+        <div>${dt ? dt.toLocaleString() : "Date TBA"}</div>
+        <div>Location: Home (Gainesville)</div>
+      </div>
+      <div class="ticket-pricing">
+        <div>Lowest: <strong>TBD</strong></div>
+        <div>Average: <strong>TBD</strong></div>
+      </div>
+      <a class="btn primary" href="https://shop.floridagators.com/" target="_blank" rel="noopener noreferrer">
+        Find Tickets & Gear
+      </a>
+    `;
+    grid.appendChild(card);
+  });
 }
 
-document.addEventListener("DOMContentLoaded", init);
+// =======================
+// HELPERS
+// =======================
+function parseSportsDataDate(value) {
+  if (!value) return null;
+  // SportsDataIO uses ISO strings or "YYYY-MM-DDT..." formats.
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function formatDate(date) {
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  });
+}
+
+function pad2(n) {
+  return n.toString().padStart(2, "0");
+}
+
+function formatPct(value) {
+  if (value == null) return "–";
+  return (value * 100).toFixed(1) + "%";
+}
