@@ -7,7 +7,7 @@
 const WORKER_BASE = "https://gators-proxy.robbiek7455.workers.dev";
 
 const API_CONFIG = {
-  seasons: [2022, 2023, 2024, 2025],
+  seasons: [2022, 2023, 2024, 2025], // seasons you care about
   defaultSeason: 2025,
   teamKey: "FLA",
   baseScoresUrl: `${WORKER_BASE}/v3/cbb/scores/json`,
@@ -15,11 +15,14 @@ const API_CONFIG = {
   baseOddsUrl: `${WORKER_BASE}/v3/cbb/odds/json`
 };
 
+// NOTE: these now build **single-season** endpoints.
+// We loop over seasons in JavaScript instead of using comma-separated seasons.
 const ENDPOINTS = {
-  schedulesMultiSeason: "TeamSchedule/2022,2023,2024,2025/FLA",
-  playerSeasonStatsMultiSeason: "PlayerSeasonStatsByTeam/2022,2023,2024,2025/FLA",
-  teamSeasonStatsMultiSeason: "TeamSeasonStats/2022,2023,2024,2025",
-  playersByTeam: "Players/FLA",
+  teamSchedule: (season) => `TeamSchedule/${season}/${API_CONFIG.teamKey}`,
+  playerSeasonStatsByTeam: (season) =>
+    `PlayerSeasonStatsByTeam/${season}/${API_CONFIG.teamKey}`,
+  teamSeasonStats: (season) => `TeamSeasonStats/${season}`,
+  playersByTeam: `Players/${API_CONFIG.teamKey}`,
   areAnyGamesInProgress: "AreAnyGamesInProgress",
   currentSeason: "CurrentSeason",
   activeSportsbooks: "ActiveSportsbooks"
@@ -59,7 +62,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initSeasonSelectors();
   initFilters();
   initPoll();
-  loadAllData();  // if this fails, tabs still work
+  loadAllData(); // if this fails, tabs still work
 });
 
 // =====================
@@ -98,10 +101,8 @@ function initTabs() {
   links.forEach((btn) => {
     btn.addEventListener("click", () => {
       const targetId = btn.dataset.target;
-      // toggle active tab button
       links.forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
-      // toggle sections
       sections.forEach((sec) => {
         sec.classList.toggle("active", sec.id === targetId);
       });
@@ -144,11 +145,15 @@ function initSeasonSelectors() {
 }
 
 function syncSeasonSelectors(season) {
-  ["schedule-season-select", "roster-season-select", "stats-season-select", "analytics-season-select"]
-    .forEach((id) => {
-      const el = document.getElementById(id);
-      if (el) el.value = String(season);
-    });
+  [
+    "schedule-season-select",
+    "roster-season-select",
+    "stats-season-select",
+    "analytics-season-select"
+  ].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.value = String(season);
+  });
 }
 
 // =====================
@@ -220,7 +225,7 @@ function initPoll() {
 }
 
 // =====================
-// DATA LOADING
+// DATA LOADING – one season at a time (fixes overflow error)
 // =====================
 async function loadAllData() {
   const loading = document.getElementById("global-loading");
@@ -229,26 +234,84 @@ async function loadAllData() {
   if (errorDiv) errorDiv.classList.add("hidden");
 
   try {
-    const results = await Promise.allSettled([
-      fetchJson(urlScores(ENDPOINTS.schedulesMultiSeason)),
-      fetchJson(urlStats(ENDPOINTS.playerSeasonStatsMultiSeason)),
-      fetchJson(urlScores(ENDPOINTS.teamSeasonStatsMultiSeason)),
-      fetchJson(urlScores(ENDPOINTS.playersByTeam)),
-      fetchJson(urlScores(ENDPOINTS.currentSeason)),
-      fetchJson(urlScores(ENDPOINTS.areAnyGamesInProgress)),
-      fetchJson(urlOdds(ENDPOINTS.activeSportsbooks))
+    const scheduleAll = [];
+    const playerStatsAll = [];
+    const teamSeasonStatsAll = [];
+
+    // Loop through each season ONE AT A TIME instead of comma-separated
+    for (const season of state.seasons) {
+      // 1) Schedule for this season
+      try {
+        const scheduleSeason = await fetchJson(
+          urlScores(ENDPOINTS.teamSchedule(season))
+        );
+        if (Array.isArray(scheduleSeason)) {
+          scheduleSeason.forEach((g) => {
+            if (g.Season == null) g.Season = season;
+            scheduleAll.push(g);
+          });
+        }
+      } catch (err) {
+        console.warn("Failed to load schedule for season", season, err);
+      }
+
+      // 2) Player season stats for this season
+      try {
+        const playerStatsSeason = await fetchJson(
+          urlStats(ENDPOINTS.playerSeasonStatsByTeam(season))
+        );
+        if (Array.isArray(playerStatsSeason)) {
+          playerStatsSeason.forEach((p) => {
+            if (p.Season == null) p.Season = season;
+            playerStatsAll.push(p);
+          });
+        }
+      } catch (err) {
+        console.warn("Failed to load player stats for season", season, err);
+      }
+
+      // 3) Team season stats for this season (we'll filter to Florida later)
+      try {
+        const teamStatsSeason = await fetchJson(
+          urlScores(ENDPOINTS.teamSeasonStats(season))
+        );
+        if (Array.isArray(teamStatsSeason)) {
+          teamStatsSeason.forEach((t) => {
+            if (t.Season == null) t.Season = season;
+            teamSeasonStatsAll.push(t);
+          });
+        }
+      } catch (err) {
+        console.warn("Failed to load team season stats for season", season, err);
+      }
+    }
+
+    // Non-season-specific endpoints can run in parallel
+    const [
+      playersAll,
+      currentSeasonVal,
+      gamesInProgressVal,
+      activeSportsbooks
+    ] = await Promise.all([
+      fetchJson(urlScores(ENDPOINTS.playersByTeam)).catch((err) => {
+        console.warn("Failed to load players", err);
+        return [];
+      }),
+      fetchJson(urlScores(ENDPOINTS.currentSeason)).catch(() => null),
+      fetchJson(urlScores(ENDPOINTS.areAnyGamesInProgress)).catch(() => null),
+      fetchJson(urlOdds(ENDPOINTS.activeSportsbooks)).catch(() => [])
     ]);
 
-    const get = (i) => (results[i].status === "fulfilled" ? results[i].value : null);
+    state.scheduleAll = scheduleAll;
+    state.playerSeasonStatsAll = playerStatsAll;
+    state.teamSeasonStatsAll = teamSeasonStatsAll;
+    state.playersAll = Array.isArray(playersAll) ? playersAll : [];
+    state.gamesInProgress = gamesInProgressVal;
+    state.activeSportsbooks = Array.isArray(activeSportsbooks)
+      ? activeSportsbooks
+      : [];
 
-    state.scheduleAll = Array.isArray(get(0)) ? get(0) : [];
-    state.playerSeasonStatsAll = Array.isArray(get(1)) ? get(1) : [];
-    state.teamSeasonStatsAll = Array.isArray(get(2)) ? get(2) : [];
-    state.playersAll = Array.isArray(get(3)) ? get(3) : [];
-    const currentSeasonVal = get(4);
-    state.gamesInProgress = get(5);
-    state.activeSportsbooks = Array.isArray(get(6)) ? get(6) : [];
-
+    // Try to use current season from API if it matches one we support
     let seasonFromApi = null;
     if (typeof currentSeasonVal === "number") {
       seasonFromApi = currentSeasonVal;
@@ -265,7 +328,7 @@ async function loadAllData() {
     console.error("Error loading data:", err);
     if (errorDiv) {
       errorDiv.textContent =
-        "Error loading data from SportsDataIO (via Worker). Check Worker URL and endpoints.";
+        "Error loading data from SportsDataIO (via Worker). Check Worker URL, API key, and plan permissions.";
       errorDiv.classList.remove("hidden");
     }
   } finally {
@@ -274,7 +337,7 @@ async function loadAllData() {
 }
 
 async function fetchJson(url) {
-  const res = await fetch(url);
+  const res = await fetch(url); // Worker adds ?key=... and CORS headers
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
   return res.json();
 }
@@ -299,7 +362,9 @@ function getSeasonSchedule() {
 }
 
 function getSeasonPlayerStats() {
-  return (state.playerSeasonStatsAll || []).filter((p) => p.Season === state.currentSeason);
+  return (state.playerSeasonStatsAll || []).filter(
+    (p) => p.Season === state.currentSeason
+  );
 }
 
 function getSeasonTeamSeasonStats() {
@@ -406,7 +471,6 @@ function showGameDetail(game) {
   card.classList.remove("hidden");
 }
 
-// Next game + hero metrics inside Schedule tab
 function renderHeroStatsFromState() {
   const schedule = getSeasonSchedule();
   const stats = getSeasonPlayerStats();
@@ -462,8 +526,10 @@ function renderHeroStatsFromState() {
   const teamSeason = getSeasonTeamSeasonStats();
   let ppg = null;
   let rpg = null;
-  if (teamSeason && typeof teamSeason.PointsPerGame === "number") ppg = teamSeason.PointsPerGame;
-  if (teamSeason && typeof teamSeason.ReboundsPerGame === "number") rpg = teamSeason.ReboundsPerGame;
+  if (teamSeason && typeof teamSeason.PointsPerGame === "number")
+    ppg = teamSeason.PointsPerGame;
+  if (teamSeason && typeof teamSeason.ReboundsPerGame === "number")
+    rpg = teamSeason.ReboundsPerGame;
 
   if (ppg == null || rpg == null) {
     let totalPoints = 0;
