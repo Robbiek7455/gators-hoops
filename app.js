@@ -2,48 +2,30 @@
 // CONFIG – FRONTEND CALLS YOUR CLOUDFLARE WORKER
 // =====================
 
-// TODO: change this to your real Worker URL
-// Example: "https://gators-proxy.robbiek7455.workers.dev"
-const WORKER_BASE = "gators-proxy.robbiek7455.workers.dev/";
+// CHANGE THIS to your real Worker URL, e.g.
+// "https://gators-proxy.robbiek7455.workers.dev"
+const WORKER_BASE = "https://gators-proxy.robbiek7455.workers.dev";
 
 const API_CONFIG = {
-  // seasons you want to support in the UI
   seasons: [2022, 2023, 2024, 2025],
   defaultSeason: 2025,
-  teamKey: "FLA", // Florida Gators key in SportsDataIO
-
-  // these now point to your Worker, NOT directly to api.sportsdata.io
+  teamKey: "FLA",
   baseScoresUrl: `${WORKER_BASE}/v3/cbb/scores/json`,
   baseStatsUrl: `${WORKER_BASE}/v3/cbb/stats/json`,
   baseOddsUrl: `${WORKER_BASE}/v3/cbb/odds/json`
 };
 
-// Endpoints: multi-season NCAA CBB endpoints (matching your SportsDataIO list)
 const ENDPOINTS = {
-  // Multi-season schedule for FLA
   schedulesMultiSeason: "TeamSchedule/2022,2023,2024,2025/FLA",
-
-  // Multi-season player season stats for FLA
   playerSeasonStatsMultiSeason: "PlayerSeasonStatsByTeam/2022,2023,2024,2025/FLA",
-
-  // Multi-season team season stats (we filter to FLA)
   teamSeasonStatsMultiSeason: "TeamSeasonStats/2022,2023,2024,2025",
-
-  // All players for FLA
   playersByTeam: "Players/FLA",
-
-  // Utility: Is any game in progress?
   areAnyGamesInProgress: "AreAnyGamesInProgress",
-
-  // Utility: current season
   currentSeason: "CurrentSeason",
-
-  // Odds: list of sportsbooks (names only)
   activeSportsbooks: "ActiveSportsbooks"
 };
 
 function urlScores(path) {
-  // no ?key here – Worker adds key in header
   return `${API_CONFIG.baseScoresUrl}/${path}`;
 }
 function urlStats(path) {
@@ -59,14 +41,12 @@ function urlOdds(path) {
 const state = {
   seasons: API_CONFIG.seasons.slice(),
   currentSeason: API_CONFIG.defaultSeason,
-
   scheduleAll: [],
   playerSeasonStatsAll: [],
   teamSeasonStatsAll: [],
   playersAll: [],
   gamesInProgress: null,
   activeSportsbooks: [],
-
   countdownInterval: null
 };
 
@@ -76,15 +56,14 @@ const state = {
 document.addEventListener("DOMContentLoaded", () => {
   initTheme();
   initTabs();
-  initHeroPills();
   initSeasonSelectors();
   initFilters();
   initPoll();
-  loadAllData();
+  loadAllData();  // if this fails, tabs still work
 });
 
 // =====================
-// THEME TOGGLE
+// THEME
 // =====================
 const THEME_KEY = "gators_theme";
 
@@ -106,13 +85,11 @@ function initTheme() {
 function setTheme(theme) {
   document.body.dataset.theme = theme;
   const btn = document.getElementById("theme-toggle");
-  if (btn) {
-    btn.textContent = theme === "dark" ? "Light mode" : "Dark mode";
-  }
+  if (btn) btn.textContent = theme === "dark" ? "Light mode" : "Dark mode";
 }
 
 // =====================
-// TABS & HERO PILLS
+// TABS
 // =====================
 function initTabs() {
   const links = document.querySelectorAll(".nav-link");
@@ -121,29 +98,10 @@ function initTabs() {
   links.forEach((btn) => {
     btn.addEventListener("click", () => {
       const targetId = btn.dataset.target;
+      // toggle active tab button
       links.forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
-      sections.forEach((sec) => {
-        sec.classList.toggle("active", sec.id === targetId);
-      });
-    });
-  });
-}
-
-function initHeroPills() {
-  const pills = document.querySelectorAll(".pill-btn");
-  const sections = document.querySelectorAll(".tab-section");
-  const navLinks = document.querySelectorAll(".nav-link");
-
-  pills.forEach((pill) => {
-    pill.addEventListener("click", () => {
-      const targetId = pill.dataset.target;
-      pills.forEach((p) => p.classList.remove("pill-active"));
-      pill.classList.add("pill-active");
-
-      navLinks.forEach((link) =>
-        link.classList.toggle("active", link.dataset.target === targetId)
-      );
+      // toggle sections
       sections.forEach((sec) => {
         sec.classList.toggle("active", sec.id === targetId);
       });
@@ -152,11 +110,10 @@ function initHeroPills() {
 }
 
 // =====================
-// SEASON SELECTORS
+// SEASONS
 // =====================
 function initSeasonSelectors() {
   const ids = [
-    "hero-season-select",
     "schedule-season-select",
     "roster-season-select",
     "stats-season-select",
@@ -187,17 +144,11 @@ function initSeasonSelectors() {
 }
 
 function syncSeasonSelectors(season) {
-  const ids = [
-    "hero-season-select",
-    "schedule-season-select",
-    "roster-season-select",
-    "stats-season-select",
-    "analytics-season-select"
-  ];
-  ids.forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) el.value = String(season);
-  });
+  ["schedule-season-select", "roster-season-select", "stats-season-select", "analytics-season-select"]
+    .forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.value = String(season);
+    });
 }
 
 // =====================
@@ -211,7 +162,6 @@ function initFilters() {
 
   if (upcoming) upcoming.addEventListener("change", renderSchedule);
   if (search) search.addEventListener("input", renderSchedule);
-
   if (rosterSearch) rosterSearch.addEventListener("input", renderRoster);
   if (rosterPos) rosterPos.addEventListener("change", renderRoster);
 }
@@ -270,7 +220,7 @@ function initPoll() {
 }
 
 // =====================
-// DATA LOADING (ALL AT ONCE THROUGH WORKER)
+// DATA LOADING
 // =====================
 async function loadAllData() {
   const loading = document.getElementById("global-loading");
@@ -280,33 +230,25 @@ async function loadAllData() {
 
   try {
     const results = await Promise.allSettled([
-      fetchJson(urlScores(ENDPOINTS.schedulesMultiSeason)),           // 0
-      fetchJson(urlStats(ENDPOINTS.playerSeasonStatsMultiSeason)),    // 1
-      fetchJson(urlScores(ENDPOINTS.teamSeasonStatsMultiSeason)),     // 2
-      fetchJson(urlScores(ENDPOINTS.playersByTeam)),                  // 3
-      fetchJson(urlScores(ENDPOINTS.currentSeason)),                  // 4
-      fetchJson(urlScores(ENDPOINTS.areAnyGamesInProgress)),          // 5
-      fetchJson(urlOdds(ENDPOINTS.activeSportsbooks))                 // 6
+      fetchJson(urlScores(ENDPOINTS.schedulesMultiSeason)),
+      fetchJson(urlStats(ENDPOINTS.playerSeasonStatsMultiSeason)),
+      fetchJson(urlScores(ENDPOINTS.teamSeasonStatsMultiSeason)),
+      fetchJson(urlScores(ENDPOINTS.playersByTeam)),
+      fetchJson(urlScores(ENDPOINTS.currentSeason)),
+      fetchJson(urlScores(ENDPOINTS.areAnyGamesInProgress)),
+      fetchJson(urlOdds(ENDPOINTS.activeSportsbooks))
     ]);
 
     const get = (i) => (results[i].status === "fulfilled" ? results[i].value : null);
 
-    const scheduleAll = get(0) || [];
-    const playerStatsAll = get(1) || [];
-    const teamSeasonStatsAll = get(2) || [];
-    const playersAll = get(3) || [];
+    state.scheduleAll = Array.isArray(get(0)) ? get(0) : [];
+    state.playerSeasonStatsAll = Array.isArray(get(1)) ? get(1) : [];
+    state.teamSeasonStatsAll = Array.isArray(get(2)) ? get(2) : [];
+    state.playersAll = Array.isArray(get(3)) ? get(3) : [];
     const currentSeasonVal = get(4);
-    const gamesInProgressVal = get(5);
-    const activeSportsbooks = get(6) || [];
+    state.gamesInProgress = get(5);
+    state.activeSportsbooks = Array.isArray(get(6)) ? get(6) : [];
 
-    state.scheduleAll = Array.isArray(scheduleAll) ? scheduleAll : [];
-    state.playerSeasonStatsAll = Array.isArray(playerStatsAll) ? playerStatsAll : [];
-    state.teamSeasonStatsAll = Array.isArray(teamSeasonStatsAll) ? teamSeasonStatsAll : [];
-    state.playersAll = Array.isArray(playersAll) ? playersAll : [];
-    state.gamesInProgress = gamesInProgressVal;
-    state.activeSportsbooks = Array.isArray(activeSportsbooks) ? activeSportsbooks : [];
-
-    // Use CurrentSeason endpoint if it returns a season we support
     let seasonFromApi = null;
     if (typeof currentSeasonVal === "number") {
       seasonFromApi = currentSeasonVal;
@@ -323,7 +265,7 @@ async function loadAllData() {
     console.error("Error loading data:", err);
     if (errorDiv) {
       errorDiv.textContent =
-        "Error loading data from SportsDataIO (via Worker) – check Worker URL and endpoints.";
+        "Error loading data from SportsDataIO (via Worker). Check Worker URL and endpoints.";
       errorDiv.classList.remove("hidden");
     }
   } finally {
@@ -332,7 +274,7 @@ async function loadAllData() {
 }
 
 async function fetchJson(url) {
-  const res = await fetch(url); // no headers; Worker adds key & CORS
+  const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
   return res.json();
 }
@@ -342,7 +284,7 @@ async function fetchJson(url) {
 // =====================
 function renderAll() {
   renderSchedule();
-  renderHeroFromState();
+  renderHeroStatsFromState();
   renderRoster();
   renderStats();
   renderAnalytics();
@@ -350,7 +292,7 @@ function renderAll() {
 }
 
 // =====================
-// SCHEDULE + HERO
+// SCHEDULE / NEXT GAME
 // =====================
 function getSeasonSchedule() {
   return (state.scheduleAll || []).filter((g) => g.Season === state.currentSeason);
@@ -464,11 +406,11 @@ function showGameDetail(game) {
   card.classList.remove("hidden");
 }
 
-function renderHeroFromState() {
+// Next game + hero metrics inside Schedule tab
+function renderHeroStatsFromState() {
   const schedule = getSeasonSchedule();
   const stats = getSeasonPlayerStats();
 
-  // Live badge from AreAnyGamesInProgress
   const liveBadge = document.getElementById("live-badge");
   if (liveBadge) {
     const val = state.gamesInProgress;
@@ -476,7 +418,6 @@ function renderHeroFromState() {
     liveBadge.classList.toggle("hidden", !isLive);
   }
 
-  // Next game + countdown
   const nextGame = findNextGame(schedule);
   const oppEl = document.getElementById("next-game-opponent");
   const metaEl = document.getElementById("next-game-meta");
@@ -498,7 +439,6 @@ function renderHeroFromState() {
     stopCountdown();
   }
 
-  // Quick record + PPG/RPG + last 5
   const recordEl = document.getElementById("quick-record");
   const ppgEl = document.getElementById("quick-ppg");
   const rpgEl = document.getElementById("quick-rpg");
@@ -519,16 +459,11 @@ function renderHeroFromState() {
 
   if (recordEl) recordEl.textContent = wins + losses ? `${wins}-${losses}` : "–";
 
-  // Prefer team-level stats if available
   const teamSeason = getSeasonTeamSeasonStats();
   let ppg = null;
   let rpg = null;
-  if (teamSeason && typeof teamSeason.PointsPerGame === "number") {
-    ppg = teamSeason.PointsPerGame;
-  }
-  if (teamSeason && typeof teamSeason.ReboundsPerGame === "number") {
-    rpg = teamSeason.ReboundsPerGame;
-  }
+  if (teamSeason && typeof teamSeason.PointsPerGame === "number") ppg = teamSeason.PointsPerGame;
+  if (teamSeason && typeof teamSeason.ReboundsPerGame === "number") rpg = teamSeason.ReboundsPerGame;
 
   if (ppg == null || rpg == null) {
     let totalPoints = 0;
@@ -824,7 +759,6 @@ function renderAnalytics() {
   const recordEl = document.getElementById("analytics-record");
   const scoringEl = document.getElementById("analytics-scoring");
   const last5El = document.getElementById("analytics-last5");
-
   if (!recordEl || !scoringEl || !last5El) return;
 
   const finals = schedule
